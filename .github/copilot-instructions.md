@@ -17,6 +17,13 @@ Follow these rules when generating code, comments, or review feedback in this re
 4. Inconsistency with the existing simple TypeScript/webpack structure.
 5. Unnecessary complexity or broad refactors.
 
+## Review Completeness
+
+- In a single review round, report all actionable issues you can identify.
+- Do not intentionally drip-feed findings across multiple review rounds.
+- Later review rounds should focus on newly introduced changes, unresolved findings, or issues that were not reasonably visible in the previous round.
+- If there are many findings, group related issues and prioritize the highest-risk items first.
+
 ## Style
 
 - Keep public README and user-facing extension text in English unless the task explicitly changes that.
