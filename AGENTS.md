@@ -57,7 +57,7 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
    b) Pokaz czlowiekowi zakres zmian przed commitem.
    c) Jesli sa zmiany, zrob logiczny commit albo kilka malych commitow.
    d) Wypchnij branch.
-   e) Utworz Pull Request do glownej galezi projektu.
+   e) Utworz Pull Request do glownej galezi projektu jako gotowy do review, nie jako draft.
 
 2. Review Copilota
    a) Popros o review Copilota, jesli repozytorium to obsluguje.
