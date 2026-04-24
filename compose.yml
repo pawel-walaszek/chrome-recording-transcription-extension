@@ -1,0 +1,26 @@
+services:
+  builder:
+    image: node:20-bookworm-slim
+    working_dir: /workspace
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    environment:
+      HOST_UID: "${HOST_UID:-1000}"
+      HOST_GID: "${HOST_GID:-1000}"
+      npm_config_cache: /home/node/.npm
+    volumes:
+      - ./package.json:/workspace/package.json:ro
+      - ./package-lock.json:/workspace/package-lock.json:ro
+      - ./tsconfig.json:/workspace/tsconfig.json:ro
+      - ./webpack.config.js:/workspace/webpack.config.js:ro
+      - ./manifest.json:/workspace/manifest.json:ro
+      - ./popup.html:/workspace/popup.html:ro
+      - ./offscreen.html:/workspace/offscreen.html:ro
+      - ./micsetup.html:/workspace/micsetup.html:ro
+      - ./src:/workspace/src:ro
+      - ./dist:/workspace/dist
+      - node_modules:/workspace/node_modules
+      - npm_cache:/home/node/.npm
+
+volumes:
+  node_modules:
+  npm_cache:

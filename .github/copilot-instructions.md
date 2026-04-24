@@ -33,5 +33,5 @@ Follow these rules when generating code, comments, or review feedback in this re
 
 ## Validation
 
-- Use `npm run check` for code/config changes.
+- Use `make check` for code/config changes.
 - Ask for or describe manual Chrome extension testing when browser behavior changes.

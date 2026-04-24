@@ -16,6 +16,7 @@ The extension saves Google Meet captions as a local `.txt` transcript and can re
 | Offscreen recorder | `offscreen.html`, `src/offscreen.ts` | Captures tab media, optionally mixes microphone audio, records via `MediaRecorder`, and returns a blob URL for download. |
 | Mic setup page | `micsetup.html`, `src/micsetup.ts` | Visible extension page used to request microphone permission when popup prompting is unreliable. |
 | Caption collector | `src/scrapingScript.ts` | Content script that observes Google Meet caption DOM and buffers transcript lines. |
+| Container build | `compose.yml`, `Makefile` | Default local build and validation entrypoint. Runs npm inside Docker Compose without local Node.js. |
 | Build | `webpack.config.js`, `tsconfig.json` | Compiles TypeScript entrypoints and copies static extension files into `dist/`. |
 
 ## Runtime Boundaries
@@ -27,8 +28,9 @@ The extension saves Google Meet captions as a local `.txt` transcript and can re
 
 ## Local Validation
 
-1. Install dependencies with `npm install` or `npm ci`.
-2. Run `npm run check`.
-3. Load `dist/` in `chrome://extensions`.
-4. Test on a Google Meet page with captions enabled for transcript behavior.
-5. Test recording start/stop and download behavior when touching capture, offscreen, or permission code.
+1. Run `make check`.
+2. Load `dist/` in `chrome://extensions`.
+3. Test on a Google Meet page with captions enabled for transcript behavior.
+4. Test recording start/stop and download behavior when touching capture, offscreen, or permission code.
+
+GitHub Actions may still call npm scripts directly, but the supported local workflow is `make`.

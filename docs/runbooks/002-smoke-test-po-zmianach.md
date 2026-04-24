@@ -6,13 +6,14 @@ Szybko potwierdzic, ze build oraz najwazniejsze sciezki rozszerzenia dzialaja po
 
 ## Wymagania
 
-- Zainstalowane zaleznosci Node.js (`npm install` albo `npm ci`).
+- Docker z obsluga `docker compose` v2.
+- `make`.
 - Google Chrome lub Chromium z obsluga Manifest V3 i Offscreen API.
 - Testowe spotkanie Google Meet albo mozliwosc otwarcia strony `https://meet.google.com/*`.
 
 ## Kroki
 
-1. Uruchom `npm run check`.
+1. Uruchom `make check`.
 2. Otworz `chrome://extensions`.
 3. Wlacz Developer mode.
 4. Kliknij Reload przy rozszerzeniu, jesli bylo juz zaladowane, albo Load unpacked i wybierz `dist/`.
@@ -23,7 +24,7 @@ Szybko potwierdzic, ze build oraz najwazniejsze sciezki rozszerzenia dzialaja po
 
 ## Kryteria zaliczenia
 
-- `npm run check` konczy sie sukcesem.
+- `make check` konczy sie sukcesem.
 - `dist/` laduje sie jako rozszerzenie bez bledow manifestu.
 - Transkrypt zapisuje plik `.txt`, gdy captions sa wlaczone.
 - Nagrywanie startuje, zatrzymuje sie i pobiera `.webm`, jesli dotknieto kodu recording/offscreen/permissions.

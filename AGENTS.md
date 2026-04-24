@@ -27,7 +27,6 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 ## Weryfikacja
 
 - Po zmianach w kodzie lub konfiguracji uruchom `make check`.
-- Lokalny `npm run check` traktuj jako wariant alternatywny dla srodowisk z lokalnym Node.js.
 - Dla zmian dotykajacych przeplywow przegladarkowych wykonaj tez smoke test z `docs/runbooks/002-smoke-test-po-zmianach.md`.
 - Jesli nie da sie uruchomic walidacji, podaj konkretny powod i zakres ryzyka.
 
@@ -57,15 +56,17 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
    b) Pokaz czlowiekowi zakres zmian przed commitem.
    c) Jesli sa zmiany, zrob logiczny commit albo kilka malych commitow.
    d) Wypchnij branch.
-   e) Utworz Pull Request do glownej galezi projektu.
+   e) Utworz Pull Request do glownej galezi projektu jako gotowy do review, nie jako draft.
 
 2. Review Copilota
    a) Popros o review Copilota, jesli repozytorium to obsluguje.
    b) Poczekaj na wynik review.
    c) Jesli Copilot zglosi uwagi, nie wdrazaj ich automatycznie.
    d) Zbierz uwagi Copilota i przedstaw je czlowiekowi do decyzji, najlepiej pojedynczo.
-   e) Kazda uwage omow z czlowiekiem przed zmiana w kodzie.
-   f) Dopiero po zatwierdzeniu konkretnej uwagi przez czlowieka wprowadz zmiane.
+   e) Przy omawianiu uwagi podaj wystarczajacy kontekst techniczny, zeby czlowiek mogl podjac decyzje bez znajomosci detali implementacji.
+   f) Wyjasnij, czego uwaga dotyczy, jaki jest praktyczny skutek, jakie sa sensowne opcje i jaka opcje rekomendujesz.
+   g) Kazda uwage omow z czlowiekiem przed zmiana w kodzie.
+   h) Dopiero po zatwierdzeniu konkretnej uwagi przez czlowieka wprowadz zmiane.
 
 3. Odpowiedzi do review
    a) Na kazda uwage Copilota odpowiedz w watku:
@@ -90,7 +91,6 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 ## Chrome Extension
 
 - Po `make build` testuj przez zaladowanie katalogu `dist/` w `chrome://extensions`.
-- Lokalny `npm run build` jest wariantem alternatywnym, nie domyslnym.
 - Po zmianach w `manifest.json`, `background.ts`, `offscreen.ts` albo plikach HTML przeladuj rozszerzenie w `chrome://extensions`.
 - Po zmianach w `scrapingScript.ts` odswiez aktywna karte Google Meet.
 - Nie dodawaj zewnetrznych uslug ani przesylania nagran/transkrypcji poza przegladarke bez jednoznacznej decyzji czlowieka.

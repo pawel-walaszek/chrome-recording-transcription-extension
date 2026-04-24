@@ -9,11 +9,11 @@ Briefly describe what changes and why.
 
 ## Verification
 
-1. `npm run check`
+1. `make check`
 2. Manual Chrome extension smoke test, if browser behavior changed:
-   - load `dist/` in `chrome://extensions`
-   - test transcript download on Google Meet
-   - test recording start/stop when capture or offscreen code changed
+   a) load `dist/` in `chrome://extensions`
+   b) test transcript download on Google Meet
+   c) test recording start/stop when capture or offscreen code changed
 
 ## Chrome Extension Impact
 
