@@ -35,8 +35,6 @@ If you'd rather use a bot or desktop recording form factor, check out [Recall.ai
 
 **Docker** with **Docker Compose v2** and **make** to build the extension without installing Node.js locally.
 
-Node.js 18+ and npm can still be used as an alternative local workflow.
-
 The extension uses the following Chrome permissions:
 `activeTab`, `downloads`, `tabCapture`, `offscreen`, `storage`, `tabs`, `desktopCapture`
 and is scoped to `https://meet.google.com/*`.
@@ -108,19 +106,7 @@ This runs `npm ci` and a production webpack build inside the `node:20-bookworm-s
   - Turn on `Developer mode`
   - Click `Load unpacked` → select the `dist` directory that was created inside your repo when you ran `make build`
 
-**Alternative: local Node.js/npm**
-
-If you intentionally want to build without Docker, install Node.js 18+ and npm, then run:
-
-```
-npm install
-npm run build
-```
-
-The containerized `make build` workflow is the default path for this project.
-
-> During development you can also run `npm run watch` if you are using local Node.js.
-> After each rebuild, click Reload on the extension in `chrome://extensions` to pick up changes. If you changed the service worker or manifest, you must reload the extension; for content script-only changes, a page refresh of the Google Meet tab may be enough.
+After each rebuild, click Reload on the extension in `chrome://extensions` to pick up changes. If you changed the service worker or manifest, you must reload the extension; for content script-only changes, a page refresh of the Google Meet tab may be enough.
 
 
 ## Using the extension
@@ -187,7 +173,7 @@ const WANT_MIC_MIX = true
 `make clean` – remove generated `dist/`
 `make deps-clean` – remove Docker Compose dependency/cache volumes
 
-## Local npm scripts
+## Internal npm scripts
 
 `npm run build` – single production build to `dist/`
 `npm run typecheck` – run TypeScript validation without emitting files
@@ -195,7 +181,7 @@ const WANT_MIC_MIX = true
 `npm run smoke` – run the smoke-test helper
 `npm run watch` – rebuild on change (remember to reload the extension in Chrome)
 
-The npm scripts are mostly used inside the build container. They are also available for the alternative local Node.js workflow.
+The npm scripts are implementation details used by the build container and CI. The supported local workflow is the Make/Docker Compose flow above.
 
 ## Dependencies & toolchain
 
@@ -261,8 +247,7 @@ Answer:
 
 ## Development tips
 
- - Use `make build` for the default containerized production build.
- - Use `npm run watch` during iteration only when using local Node.js.
+ - Use `make build` for the containerized production build.
  - Background logs appear in the `service worker` console:
     - `chrome://extensions` → your extension → `service worker` → `Inspect`
  - Offscreen logs: open `chrome://extensions` → your extension → `service worker` → look for messages from `[offscreen]`.

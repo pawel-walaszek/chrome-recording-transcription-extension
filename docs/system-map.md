@@ -33,4 +33,4 @@ The extension saves Google Meet captions as a local `.txt` transcript and can re
 3. Test on a Google Meet page with captions enabled for transcript behavior.
 4. Test recording start/stop and download behavior when touching capture, offscreen, or permission code.
 
-Local `npm run check` remains available as an alternative workflow for environments with Node.js installed.
+GitHub Actions may still call npm scripts directly, but the supported local workflow is `make`.

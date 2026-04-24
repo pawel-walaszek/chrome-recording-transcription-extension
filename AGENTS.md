@@ -27,7 +27,6 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 ## Weryfikacja
 
 - Po zmianach w kodzie lub konfiguracji uruchom `make check`.
-- Lokalny `npm run check` traktuj jako wariant alternatywny dla srodowisk z lokalnym Node.js.
 - Dla zmian dotykajacych przeplywow przegladarkowych wykonaj tez smoke test z `docs/runbooks/002-smoke-test-po-zmianach.md`.
 - Jesli nie da sie uruchomic walidacji, podaj konkretny powod i zakres ryzyka.
 
@@ -90,7 +89,6 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 ## Chrome Extension
 
 - Po `make build` testuj przez zaladowanie katalogu `dist/` w `chrome://extensions`.
-- Lokalny `npm run build` jest wariantem alternatywnym, nie domyslnym.
 - Po zmianach w `manifest.json`, `background.ts`, `offscreen.ts` albo plikach HTML przeladuj rozszerzenie w `chrome://extensions`.
 - Po zmianach w `scrapingScript.ts` odswiez aktywna karte Google Meet.
 - Nie dodawaj zewnetrznych uslug ani przesylania nagran/transkrypcji poza przegladarke bez jednoznacznej decyzji czlowieka.

@@ -4,7 +4,7 @@
 
 Celem jest dodanie kontenerowego sposobu budowania rozszerzenia, tak aby lokalnie nie trzeba bylo instalowac Node.js ani uruchamiac `npm` na hoscie. Repo dostanie `compose.yml` z usluga buildowa oraz `Makefile`, ktory jednym poleceniem uruchomi build w kontenerze i zapisze wynik w lokalnym `dist/`.
 
-Realizacja specyfikacji ma tez przestawic instrukcje projektu tak, aby domyslnym sposobem lokalnego budowania i walidacji byl `make` uruchamiajacy kontener. Lokalny `npm` ma zostac opisany jako wariant alternatywny dla osob, ktore swiadomie chca uzywac lokalnego Node.js.
+Realizacja specyfikacji ma tez przestawic instrukcje projektu tak, aby wspieranym sposobem lokalnego budowania i walidacji byl `make` uruchamiajacy kontener. Lokalny `npm` pozostaje szczegolem implementacyjnym uzywanym przez kontener i CI, ale nie jest dokumentowany jako wspierany workflow lokalny.
 
 Zakres jest narzedziowy: bez zmian w logice rozszerzenia, manifestu i uprawnien Chrome.
 
@@ -42,7 +42,7 @@ bez lokalnego `npm install`, lokalnego `node_modules/` i lokalnej instalacji Nod
    a) Zaktualizowac `README.md` tak, aby domyslny workflow lokalny byl oparty o kontener:
       - `make build`
       - zaladowanie `dist/` w `chrome://extensions`
-   b) Opisac lokalny `npm install` / `npm run build` jako wariant alternatywny, nie glowny.
+   b) Nie opisywac lokalnego `npm install` / `npm run build` jako wspieranego workflow lokalnego.
    c) Zaktualizowac `AGENTS.md`, aby dla agentow domyslna walidacja po zmianach byla `make check`, a nie `npm run check`.
    d) Zaktualizowac `docs/system-map.md`, aby uwzglednic Docker Compose jako domyslne lokalne narzedzie buildowe.
    e) Zaktualizowac `docs/runbooks/002-smoke-test-po-zmianach.md`, aby podstawowa sciezka smoke testu uzywala `make check`.
@@ -121,7 +121,7 @@ make deps-clean
 4. Na hoscie nie powstaje lokalny `node_modules/`.
 5. Wygenerowane pliki w `dist/` sa zapisywalne/usuwalne przez uzytkownika hosta.
 6. README wskazuje `make build` jako domyslny sposob budowania rozszerzenia.
-7. README opisuje lokalny `npm` jako wariant alternatywny.
+7. README nie opisuje lokalnego `npm` jako wspieranego workflow lokalnego.
 8. AGENTS i runbook smoke testu wskazuja `make check` jako domyslna walidacje lokalna.
 
 ## Plan weryfikacji
@@ -157,4 +157,4 @@ make build
 ## Rozstrzygniete decyzje
 
 1. `make check` ma byc rekomendowana podstawowa walidacja lokalna.
-2. `npm run check` pozostaje dostepne jako alternatywa dla osob z lokalnym Node.js.
+2. `npm run check` pozostaje komenda techniczna dla kontenera i CI, ale nie jest wspieranym workflow lokalnym w dokumentacji projektu.
