@@ -5,6 +5,7 @@
 // You must "prime" mic permission once from a visible page (popup/options/extension tab)
 // via navigator.mediaDevices.getUserMedia({ audio: true }) before this will succeed.
 const WANT_MIC_MIX = true
+const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
@@ -39,6 +40,65 @@ function pushState(recording: boolean, extra?: Record<string, any>) {
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms))
 
+let activeStreams = new Set<MediaStream>()
+let activeAudioContexts = new Set<AudioContext>()
+let activeIntervals = new Set<number>()
+
+function trackStream<T extends MediaStream | null>(stream: T): T {
+  if (stream) activeStreams.add(stream)
+  return stream
+}
+
+function trackAudioContext<T extends AudioContext>(ctx: T): T {
+  activeAudioContexts.add(ctx)
+  return ctx
+}
+
+function cleanupRecordingResources() {
+  activeIntervals.forEach((id) => { try { clearInterval(id) } catch {} })
+  activeIntervals.clear()
+
+  activeStreams.forEach((stream) => {
+    try { stream.getTracks().forEach((track) => track.stop()) } catch {}
+  })
+  activeStreams.clear()
+
+  activeAudioContexts.forEach((ctx) => {
+    try { void ctx.close().catch(() => {}) } catch {}
+  })
+  activeAudioContexts.clear()
+}
+
+function withStreamTimeout(
+  promise: Promise<MediaStream>,
+  label: string,
+  timeoutMs = MEDIA_CAPTURE_TIMEOUT_MS
+): Promise<MediaStream> {
+  let settled = false
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+
+    promise.then((stream) => {
+      if (settled) {
+        try { stream.getTracks().forEach((track) => track.stop()) } catch {}
+        return
+      }
+      settled = true
+      clearTimeout(timeout)
+      resolve(trackStream(stream))
+    }).catch((error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      reject(error)
+    })
+  })
+}
+
 function inferSuffixFromActiveTabUrl(url?: string | null): string {
   try {
     if (!url) return 'google-meet'
@@ -52,14 +112,14 @@ function inferSuffixFromActiveTabUrl(url?: string | null): string {
 function attachRmsMeter(track: MediaStreamTrack, label: 'RAW' | 'FINAL') {
   try {
     const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext
-    const ctx = new AC()
+    const ctx = trackAudioContext(new AC())
     void ctx.resume().catch(() => {})
     const src = ctx.createMediaStreamSource(new MediaStream([track]))
     const analyser = ctx.createAnalyser()
     analyser.fftSize = 256
     const buf = new Uint8Array(analyser.frequencyBinCount)
     src.connect(analyser)
-    const id = setInterval(() => {
+    const id = window.setInterval(() => {
       analyser.getByteTimeDomainData(buf)
       let sum = 0
       for (let i = 0; i < buf.length; i++) {
@@ -69,7 +129,11 @@ function attachRmsMeter(track: MediaStreamTrack, label: 'RAW' | 'FINAL') {
       const rms = Math.sqrt(sum / buf.length)
       console.log('[offscreen]', `${label} input level (rms):`, rms.toFixed(3))
     }, 1000)
-    track.addEventListener('ended', () => { try { clearInterval(id) } catch {} })
+    activeIntervals.add(id)
+    track.addEventListener('ended', () => {
+      try { clearInterval(id) } catch {}
+      activeIntervals.delete(id)
+    })
   } catch (e) {
     log('meter setup failed (non-fatal)', e)
   }
@@ -80,13 +144,16 @@ async function maybeGetMicStream(): Promise<MediaStream | null> {
   if (!WANT_MIC_MIX) return null
   try {
     // only succeeds if mic permission was previously granted to the extension origin
-    const mic = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
-    })
+    const mic = await withStreamTimeout(
+      navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      }),
+      'mic getUserMedia'
+    )
     const t = mic.getAudioTracks()[0]
     log('mic stream acquired:', !!t, 'muted:', t?.muted, 'enabled:', t?.enabled)
     return mic
@@ -101,7 +168,7 @@ function mixAudio(tabStream: MediaStream, micStream: MediaStream | null): MediaS
   if (!micStream || !tabAudio) return tabStream
 
   const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext
-  const ctx = new AC()
+  const ctx = trackAudioContext(new AC())
   void ctx.resume().catch(() => {})
   const dst = ctx.createMediaStreamDestination()
 
@@ -127,6 +194,7 @@ function mixAudio(tabStream: MediaStream, micStream: MediaStream | null): MediaS
     ...tabStream.getVideoTracks(),
     ...dst.stream.getAudioTracks()
   ])
+  trackStream(final)
 
   // DO NOT stop tabAudio here!!! stopping will kill the upstream source
   return final
@@ -155,13 +223,19 @@ function makeConstraints(streamId: string, source: 'tab' | 'desktop'): MediaStre
 async function captureWithStreamId(streamId: string): Promise<MediaStream> {
   try {
     log(`Attempting getUserMedia with streamId ${streamId} source= tab`)
-    const s = await navigator.mediaDevices.getUserMedia(makeConstraints(streamId, 'tab'))
+    const s = await withStreamTimeout(
+      navigator.mediaDevices.getUserMedia(makeConstraints(streamId, 'tab')),
+      'tab getUserMedia'
+    )
     return s
   } catch (e1: any) {
     log('[gUM] failed for chromeMediaSource=tab:', e1?.name || e1, e1?.message || e1)
   }
   log(`Attempting getUserMedia with streamId ${streamId} source= desktop`)
-  return await navigator.mediaDevices.getUserMedia(makeConstraints(streamId, 'desktop'))
+  return await withStreamTimeout(
+    navigator.mediaDevices.getUserMedia(makeConstraints(streamId, 'desktop')),
+    'desktop getUserMedia'
+  )
 }
 
 let mediaRecorder: MediaRecorder | null = null
@@ -169,6 +243,7 @@ let chunks: BlobPart[] = []
 let capturing = false
 
 async function prepareAndRecord(baseStream: MediaStream): Promise<void> {
+  trackStream(baseStream)
   const a = baseStream.getAudioTracks()
   const v = baseStream.getVideoTracks()
   log('getUserMedia() tracks:', {
@@ -207,7 +282,7 @@ async function prepareAndRecord(baseStream: MediaStream): Promise<void> {
   if (rawAudio) {
     try {
       const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext
-      const ctx = new AC()
+      const ctx = trackAudioContext(new AC())
       await ctx.resume().catch(() => {})
       const src = ctx.createMediaStreamSource(new MediaStream([rawAudio]))
       const analyser = ctx.createAnalyser()
@@ -252,6 +327,7 @@ async function prepareAndRecord(baseStream: MediaStream): Promise<void> {
       clearTimeout(startTimeout)
       log('MediaRecorder error', e)
       try { mixedStream.getTracks().forEach(t => t.stop()) } catch {}
+      cleanupRecordingResources()
       mediaRecorder = null
       capturing = false
       pushState(false)
@@ -280,7 +356,7 @@ async function prepareAndRecord(baseStream: MediaStream): Promise<void> {
       } catch (e) {
         log('Finalize/Save failed', e)
       } finally {
-        try { mixedStream.getTracks().forEach(t => t.stop()) } catch {}
+        cleanupRecordingResources()
         mediaRecorder = null
         chunks = []
         capturing = false
@@ -302,8 +378,18 @@ async function prepareAndRecord(baseStream: MediaStream): Promise<void> {
 
 async function startRecordingFromStreamId(streamId: string): Promise<void> {
   if (capturing) { log('Already recording; ignoring start'); return }
-  const baseStream = await captureWithStreamId(streamId)
-  await prepareAndRecord(baseStream)
+  cleanupRecordingResources()
+  try {
+    const baseStream = await captureWithStreamId(streamId)
+    await prepareAndRecord(baseStream)
+  } catch (e) {
+    cleanupRecordingResources()
+    mediaRecorder = null
+    chunks = []
+    capturing = false
+    pushState(false)
+    throw e
+  }
 }
 
 function stopRecording() {

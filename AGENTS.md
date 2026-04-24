@@ -23,6 +23,8 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Build trafia do `dist/`; nie edytuj recznie plikow wygenerowanych w `dist/`.
 - Entry pointy webpacka sa zdefiniowane w `webpack.config.js`; pliki HTML i `manifest.json` sa kopiowane do `dist/`.
 - Uprawnienia Chrome i `host_permissions` zmieniaj tylko wtedy, gdy wymaga tego funkcjonalnosc, i opisz powod w podsumowaniu.
+- Przy kazdym generowaniu nowej wtyczki podbijaj `version` w `manifest.json`.
+- Przy poprawkach bugow podbijaj ostatnia liczbe wersji, np. `1.1.0` -> `1.1.1`.
 
 ## Weryfikacja
 

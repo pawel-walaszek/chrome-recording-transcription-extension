@@ -53,6 +53,23 @@ async function ensureOffscreen(): Promise<void> {
   throw new Error('Offscreen did not become ready')
 }
 
+async function resetOffscreen(): Promise<void> {
+  try { offscreenPort?.disconnect() } catch {}
+  offscreenPort = null
+  offscreenReady = false
+  lastKnownRecording = false
+  setBadge(false)
+
+  try {
+    if (await hasOffscreenContext()) {
+      await chrome.offscreen.closeDocument()
+      await wait(250)
+    }
+  } catch (e) {
+    bglog('Offscreen reset failed', e)
+  }
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'offscreen') return
   bglog('Offscreen connected')
@@ -98,6 +115,7 @@ chrome.runtime.onConnect.addListener((port) => {
     bglog('Offscreen disconnected')
     offscreenPort = null
     offscreenReady = false
+    lastKnownRecording = false
     setBadge(false)
   })
 })
@@ -105,24 +123,34 @@ chrome.runtime.onConnect.addListener((port) => {
 function postToOffscreen(msg: any): Promise<any> {
   return new Promise((resolve, reject) => {
     if (!offscreenPort) return reject(new Error('Offscreen port not connected'))
+    const port = offscreenPort
     const id = Math.random().toString(36).slice(2)
     msg.__id = id
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
 
     const listener = (m: any) => {
       if (m && m.__respFor === id) {
-        offscreenPort!.onMessage.removeListener(listener)
+        port.onMessage.removeListener(listener)
+        if (timeoutId) clearTimeout(timeoutId)
         resolve(m.payload)
       }
     }
 
-    offscreenPort.onMessage.addListener(listener)
-    offscreenPort.postMessage(msg)
+    port.onMessage.addListener(listener)
+    port.postMessage(msg)
 
-    setTimeout(() => {
-      try { offscreenPort!.onMessage.removeListener(listener) } catch {}
+    timeoutId = setTimeout(() => {
+      try { port.onMessage.removeListener(listener) } catch {}
       reject(new Error('Offscreen response timeout'))
     }, 15000)
   })
+}
+
+function isRecoverableOffscreenStartFailure(error: unknown): boolean {
+  const message = `${error || ''}`
+  return message.includes('Offscreen response timeout') ||
+    message.includes('Offscreen port not connected') ||
+    message.includes('Cannot capture a tab with an active stream')
 }
 
 // background side streamId helper
@@ -149,17 +177,34 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       bglog('Popup requested START_RECORDING for tabId', tabId)
 
       try {
-        await ensureOffscreen()
-        bglog('ensureOffscreen() completed')
-      } catch (e: any) {
-        sendResponse({ ok: false, error: `Offscreen not ready: ${e?.message || e}` })
-        return
-      }
+        const start = async () => {
+          await ensureOffscreen()
+          bglog('ensureOffscreen() completed')
 
-      try {
-        const streamId = await getStreamIdForTab(tabId)
-        const r = await postToOffscreen({ type: 'OFFSCREEN_START', streamId })
-        bglog('postToOffscreen(OFFSCREEN_START) response', r)
+          const streamId = await getStreamIdForTab(tabId)
+          const r = await postToOffscreen({ type: 'OFFSCREEN_START', streamId })
+          bglog('postToOffscreen(OFFSCREEN_START) response', r)
+          return r
+        }
+
+        const startWithRecovery = async () => {
+          const first = await start()
+          if (first?.ok !== false || !isRecoverableOffscreenStartFailure(first?.error)) return first
+
+          bglog('OFFSCREEN_START returned recoverable error; resetting offscreen and retrying once', first?.error)
+          await resetOffscreen()
+          return await start()
+        }
+
+        let r: any
+        try {
+          r = await startWithRecovery()
+        } catch (e: any) {
+          if (!isRecoverableOffscreenStartFailure(e?.message || e)) throw e
+          bglog('OFFSCREEN_START failed with recoverable transport error; resetting offscreen and retrying once')
+          await resetOffscreen()
+          r = await start()
+        }
 
         if (r?.ok) {
           lastKnownRecording = true
@@ -171,6 +216,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
       } catch (e: any) {
         bglog('OFFSCREEN_START failed', e)
+        await resetOffscreen()
         sendResponse({ ok: false, error: `OFFSCREEN_START failed: ${e?.message || e}` })
       }
       return
