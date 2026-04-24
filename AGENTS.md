@@ -26,7 +26,8 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 
 ## Weryfikacja
 
-- Po zmianach w kodzie lub konfiguracji uruchom `npm run check`.
+- Po zmianach w kodzie lub konfiguracji uruchom `make check`.
+- Lokalny `npm run check` traktuj jako wariant alternatywny dla srodowisk z lokalnym Node.js.
 - Dla zmian dotykajacych przeplywow przegladarkowych wykonaj tez smoke test z `docs/runbooks/002-smoke-test-po-zmianach.md`.
 - Jesli nie da sie uruchomic walidacji, podaj konkretny powod i zakres ryzyka.
 
@@ -47,9 +48,49 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Commit, push i tworzenie Pull Request wykonuj tylko po wyraznej zgodzie czlowieka.
 - PR powinien zawierac zakres, sposob weryfikacji, ryzyka oraz informacje o zmianach w uprawnieniach Chrome, jesli takie wystapily.
 
+## Skrot `+PR`
+
+Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
+
+1. Przygotowanie PR
+   a) Sprawdz aktualny branch i status repo.
+   b) Pokaz czlowiekowi zakres zmian przed commitem.
+   c) Jesli sa zmiany, zrob logiczny commit albo kilka malych commitow.
+   d) Wypchnij branch.
+   e) Utworz Pull Request do glownej galezi projektu.
+
+2. Review Copilota
+   a) Popros o review Copilota, jesli repozytorium to obsluguje.
+   b) Poczekaj na wynik review.
+   c) Jesli Copilot zglosi uwagi, nie wdrazaj ich automatycznie.
+   d) Zbierz uwagi Copilota i przedstaw je czlowiekowi do decyzji, najlepiej pojedynczo.
+   e) Kazda uwage omow z czlowiekiem przed zmiana w kodzie.
+   f) Dopiero po zatwierdzeniu konkretnej uwagi przez czlowieka wprowadz zmiane.
+
+3. Odpowiedzi do review
+   a) Na kazda uwage Copilota odpowiedz w watku:
+      - `fixed` + krotko co zostalo zmienione
+      - `not applying` + krotko dlaczego nie wdrazamy
+      - `unclear` + pytanie doprecyzowujace
+   b) Nie zostawiaj komentarzy Copilota bez odpowiedzi.
+   c) Jesli uwaga jest trade-offem albo moze zmienic zalozenia funkcjonalne, zawsze pytaj czlowieka przed wdrozeniem.
+
+4. Kolejne rundy
+   a) Po wdrozeniu zatwierdzonych przez czlowieka poprawek zrob commit i push.
+   b) Ponow review Copilota tylko wtedy, gdy nie przekracza to ustalonego limitu rund.
+   c) Domyslny limit to 3 rundy CR - poprawki - CR.
+   d) Jesli limit zostal osiagniety, nie pros o kolejne review automatycznie; zapytaj czlowieka, co dalej.
+
+5. Wazne zasady
+   a) Nigdy nie wdrazaj sugestii Copilota w ciemno.
+   b) Copilot jest reviewerem pomocniczym, nie decydentem.
+   c) Decyzje o zastosowaniu kazdej sugestii podejmuje czlowiek.
+   d) Jesli czlowiek prosi o szybkie poprawki, nadal pokaz uwagi Copilota przed ich wdrozeniem.
+
 ## Chrome Extension
 
-- Po `npm run build` testuj przez zaladowanie katalogu `dist/` w `chrome://extensions`.
+- Po `make build` testuj przez zaladowanie katalogu `dist/` w `chrome://extensions`.
+- Lokalny `npm run build` jest wariantem alternatywnym, nie domyslnym.
 - Po zmianach w `manifest.json`, `background.ts`, `offscreen.ts` albo plikach HTML przeladuj rozszerzenie w `chrome://extensions`.
 - Po zmianach w `scrapingScript.ts` odswiez aktywna karte Google Meet.
 - Nie dodawaj zewnetrznych uslug ani przesylania nagran/transkrypcji poza przegladarke bez jednoznacznej decyzji czlowieka.
