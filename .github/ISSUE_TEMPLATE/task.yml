@@ -1,0 +1,22 @@
+name: Task
+description: Track maintenance, documentation, or project workflow work.
+title: "[Task]: "
+labels: ["task"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be completed?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List the files, workflows, or behaviors expected to change.
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Expected checks, for example npm run check or manual extension smoke test.

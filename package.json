@@ -3,6 +3,9 @@
     "version": "1.0.0",
     "scripts": {
         "build": "webpack --mode=production",
+        "check": "npm run typecheck && npm run build",
+        "smoke": "scripts/smoke-test.sh",
+        "typecheck": "tsc --noEmit",
         "watch": "webpack --watch"
     },
     "devDependencies": {

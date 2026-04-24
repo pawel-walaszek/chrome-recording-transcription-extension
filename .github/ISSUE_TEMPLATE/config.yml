@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Project README
+    url: https://github.com/pawel-walaszek/chrome-recording-transcription-extension#readme
+    about: Check setup, usage, and troubleshooting notes before opening an issue.

@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose an improvement to the extension.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the desired behavior and where it appears in the extension.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Transcript download
+        - Recording
+        - Microphone permission
+        - Popup UI
+        - Build/tooling
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Acceptance criteria
+      description: How should we know this is done?

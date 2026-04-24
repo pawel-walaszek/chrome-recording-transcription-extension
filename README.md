@@ -58,6 +58,16 @@ npm run build   # outputs to `./dist`
 - Click "Load unpacked"
 - Select the `./dist` folder
 
+## Development workflow
+
+Before opening a PR or handing changes to another agent, run:
+
+```
+npm run check
+```
+
+For browser-facing changes, also follow the smoke test in [`docs/runbooks/002-smoke-test-po-zmianach.md`](docs/runbooks/002-smoke-test-po-zmianach.md): rebuild, reload `dist/` in `chrome://extensions`, then validate transcript download and recording on Google Meet when relevant.
+
 
 Open a Google Meet, click the extension icon:
  - **Download Transcript** – saves a `.txt` of the live captions (turn captions ON in Google Meet).
@@ -128,6 +138,9 @@ This compiles TypeScript via `ts-loader` and copies the HTML/manifest to `dist/`
 ├─ popup.html
 ├─ offscreen.html
 ├─ micsetup.html
+├─ .github/             # GitHub templates, Copilot instructions, and CI
+├─ docs/                # system map, specs, and runbooks
+├─ scripts/             # local helper scripts
 ├─ src/
 │  ├─ background.ts     # MV3 service worker (creates offscreen, coordinates streams)
 │  ├─ offscreen.ts      # runs recorder; mixes mic + tab; saves blob via downloads
@@ -152,6 +165,9 @@ const WANT_MIC_MIX = true
 ## Scripts
 
 `npm run build` – single production build to `dist/`
+`npm run typecheck` – run TypeScript validation without emitting files
+`npm run check` – run typecheck and production build
+`npm run smoke` – run the local smoke-test helper
 `npm run watch` – rebuild on change (remember to reload the extension in Chrome)
 
 ## Dependencies & toolchain
