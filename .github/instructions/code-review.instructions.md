@@ -1,19 +1,19 @@
-# Code Review Instructions
+# Instrukcje code review
 
-Prioritize findings in this order:
+Priorytetyzuj uwagi w tej kolejności:
 
-1. Behavior regressions in Google Meet caption scraping, popup controls, background/offscreen messaging, recording, and downloads.
-2. Chrome permission, privacy, or data-handling risks.
-3. Build or packaging failures.
-4. Missing test or smoke-test coverage for changed behavior.
-5. Maintainability issues that make future changes harder.
+1. Regresje zachowania w zbieraniu napisów Google Meet, kontrolkach popupu, komunikacji background/offscreen, nagrywaniu i pobieraniu plików.
+2. Ryzyka związane z uprawnieniami Chrome, prywatnością albo obsługą danych.
+3. Błędy builda albo pakowania.
+4. Brak testu albo smoke testu dla zmienionego zachowania.
+5. Problemy utrzymywalności, które utrudniają przyszłe zmiany.
 
-Do not block on formatting-only comments unless the style issue makes the code harder to understand.
+Nie blokuj na uwagach wyłącznie formatowych, chyba że problem stylu utrudnia zrozumienie kodu.
 
-Report all actionable findings you can identify in the current review round. Do not intentionally drip-feed comments across multiple rounds. Later rounds should focus on newly introduced changes, unresolved findings, or issues that were not reasonably visible earlier.
+Zgłoś wszystkie możliwe do wdrożenia uwagi, które potrafisz zidentyfikować w bieżącej rundzie review. Nie cedź celowo komentarzy przez wiele rund. Kolejne rundy powinny skupiać się na nowo wprowadzonych zmianach, nierozwiązanych uwagach albo problemach, które wcześniej nie były rozsądnie widoczne.
 
-For each actionable issue, include:
+Przy każdej możliwej do wdrożenia uwadze podaj:
 
-- the affected file or behavior,
-- why it matters,
-- a practical fix or verification step.
+1. plik albo zachowanie, którego dotyczy,
+2. dlaczego ma znaczenie,
+3. praktyczną poprawkę albo krok weryfikacji.

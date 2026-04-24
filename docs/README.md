@@ -1,9 +1,9 @@
-# Documentation
+# Dokumentacja
 
-This directory contains technical and operational notes for the Chrome extension.
+Ten katalog zawiera notatki techniczne i operacyjne dla rozszerzenia Chrome.
 
-- [System map](system-map.md) describes the extension components and local build flow.
-- [Runbooks](runbooks/) contain repeatable validation procedures.
-- [Specs](specs/) contain short implementation specs for larger changes.
+1. [Mapa systemu](system-map.md) opisuje komponenty rozszerzenia i lokalny przepływ builda.
+2. [Runbooki](runbooks/) zawierają powtarzalne procedury walidacyjne.
+3. [Specyfikacje](specs/) zawierają krótkie specyfikacje implementacyjne dla większych zmian.
 
-The project does not currently use separate API integration docs, deployment docs, or project-specific agent skills.
+Projekt nie używa obecnie osobnych dokumentów integracji API, dokumentów deploymentu ani projektowych umiejętności agentowych.

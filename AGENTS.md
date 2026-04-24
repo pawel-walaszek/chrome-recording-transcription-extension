@@ -5,7 +5,7 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 ## Jezyk i zakres
 
 - Z czlowiekiem komunikuj sie po polsku, chyba ze poprosi inaczej.
-- Publiczny `README.md` i teksty widoczne dla uzytkownikow rozszerzenia utrzymuj po angielsku, zgodnie z obecnym stylem projektu.
+- Publiczna dokumentacje utrzymuj po polsku; teksty widoczne w UI rozszerzenia zmieniaj tylko na wyrazne zadanie.
 - Wprowadzaj zmiany minimalne, zgodne z celem zadania i istniejaca struktura repo.
 - Nie cofaj ani nie nadpisuj recznych zmian czlowieka bez wyraznej zgody.
 - Przy starcie nowego kontekstu najpierw sprawdz `docs/followups.md`, jesli plik istnieje.

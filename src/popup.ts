@@ -15,16 +15,16 @@ function toast(msg: string) {
   console.log('[popup]', msg);
 }
 
-// open a full tab to prompt for mic permission
+// Otwiera pełną kartę do nadania uprawnienia mikrofonu.
 async function openMicSetupTab() {
   await chrome.tabs.create({ url: chrome.runtime.getURL('micsetup.html') });
 }
 
-// reflect mic permission state in the button label
+// Odzwierciedla stan uprawnienia mikrofonu w etykiecie przycisku.
 async function refreshMicButton() {
   if (!micBtn || !('permissions' in navigator)) return;
   try {
-    // @ts-ignore - chrome supports this permission name
+    // @ts-ignore - Chrome obsługuje tę nazwę uprawnienia.
     const status = await (navigator as any).permissions.query({ name: 'microphone' });
     const set = () => {
       micBtn.textContent =
@@ -42,11 +42,11 @@ async function refreshMicButton() {
     set();
     status.onchange = set;
   } catch {
-    // permissions API might not be available
+    // Permissions API może nie być dostępne.
   }
 }
 
-// init: read current recording state & update UI
+// Inicjalizacja: odczyt bieżącego stanu nagrywania i aktualizacja UI.
 void (async () => {
   try {
     const st = await chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATUS' });
@@ -57,7 +57,7 @@ void (async () => {
   refreshMicButton().catch(() => {});
 })();
 
-// react to background/offscreen state pings
+// Reakcja na komunikaty stanu z tła/offscreen.
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === 'RECORDING_STATE') setUI(!!msg.recording);
   if (msg?.type === 'RECORDING_SAVED') {
@@ -66,7 +66,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// mic permission priming
+// Wstępne nadanie uprawnienia mikrofonu.
 micBtn?.addEventListener('click', async () => {
   try {
     if ('permissions' in navigator) {
@@ -82,7 +82,7 @@ micBtn?.addEventListener('click', async () => {
         return;
       }
     }
-    // try inline
+    // Próba inline.
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
       s.getTracks().forEach(t => t.stop());
@@ -97,7 +97,7 @@ micBtn?.addEventListener('click', async () => {
   }
 });
 
-// manual transcript download
+// Ręczne pobieranie transkrypcji.
 saveBtn?.addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
@@ -128,14 +128,14 @@ saveBtn?.addEventListener('click', async () => {
 
 let inFlight = false;
 
-// start recording. also resets transcript buffer for a fresh session
+// Start nagrywania. Resetuje też bufor transkrypcji dla nowej sesji.
 startBtn?.addEventListener('click', async () => {
   if (!startBtn || !stopBtn || inFlight) return;
   inFlight = true;
   startBtn.disabled = true;
 
   try {
-    // auto-prime mic if not granted
+    // Automatyczne przygotowanie mikrofonu, jeśli nie ma jeszcze uprawnienia.
     if ('permissions' in navigator) {
       try {
         // @ts-ignore
@@ -145,20 +145,20 @@ startBtn?.addEventListener('click', async () => {
             const s = await navigator.mediaDevices.getUserMedia({ audio: true });
             s.getTracks().forEach(t => t.stop());
           } catch { 
-            // continue with tab-only audio
+            // Kontynuuj tylko z audio karty.
             }
         }
       } catch { 
-        // do nothing
+        // Nic nie rób.
         }
     }
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error('No active tab');
 
-    // reset transcript buffer so a new meeting starts clean
+    // Reset bufora transkrypcji, żeby nowe spotkanie startowało czysto.
     await chrome.tabs.sendMessage(tab.id, { type: 'RESET_TRANSCRIPT' }).catch(() => {
-      // if not on a Google Meet page yet, the transcript will just be empty later.
+      // Jeśli to jeszcze nie jest strona Google Meet, transkrypcja będzie później po prostu pusta.
     });
 
     const resp = await chrome.runtime.sendMessage({ type: 'START_RECORDING', tabId: tab.id });
@@ -176,7 +176,7 @@ startBtn?.addEventListener('click', async () => {
   }
 });
 
-// stop recording
+// Stop nagrywania.
 stopBtn?.addEventListener('click', async () => {
   if (!startBtn || !stopBtn || inFlight) return;
   inFlight = true;

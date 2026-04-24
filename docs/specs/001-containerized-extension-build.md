@@ -1,10 +1,10 @@
-# Spec: containerized extension build
+# Specyfikacja: kontenerowe budowanie rozszerzenia
 
 ## Podsumowanie
 
 Celem jest dodanie kontenerowego sposobu budowania rozszerzenia, tak aby lokalnie nie trzeba bylo instalowac Node.js ani uruchamiac `npm` na hoscie. Repo dostanie `compose.yml` z usluga buildowa oraz `Makefile`, ktory jednym poleceniem uruchomi build w kontenerze i zapisze wynik w lokalnym `dist/`.
 
-Realizacja specyfikacji ma tez przestawic instrukcje projektu tak, aby wspieranym sposobem lokalnego budowania i walidacji byl `make` uruchamiajacy kontener. Lokalny `npm` pozostaje szczegolem implementacyjnym uzywanym przez kontener i CI, ale nie jest dokumentowany jako wspierany workflow lokalny.
+Realizacja specyfikacji ma tez przestawic instrukcje projektu tak, aby wspieranym sposobem lokalnego budowania i walidacji byl `make` uruchamiajacy kontener. Lokalny `npm` pozostaje szczegolem implementacyjnym uzywanym przez kontener i CI, ale nie jest dokumentowany jako wspierany lokalny przeplyw pracy.
 
 Zakres jest narzedziowy: bez zmian w logice rozszerzenia, manifestu i uprawnien Chrome.
 
@@ -39,14 +39,14 @@ bez lokalnego `npm install`, lokalnego `node_modules/` i lokalnej instalacji Nod
    g) Wyliczac `HOST_UID` i `HOST_GID` w Makefile przez `id -u` i `id -g`, z mozliwoscia nadpisania z zewnatrz.
 
 3. Dokumentacja i instrukcje projektowe
-   a) Zaktualizowac `README.md` tak, aby domyslny workflow lokalny byl oparty o kontener:
+   a) Zaktualizowac `README.md` tak, aby domyslny lokalny przeplyw pracy byl oparty o kontener:
       - `make build`
       - zaladowanie `dist/` w `chrome://extensions`
-   b) Nie opisywac lokalnego `npm install` / `npm run build` jako wspieranego workflow lokalnego.
+   b) Nie opisywac lokalnego `npm install` / `npm run build` jako wspieranego lokalnego przeplywu pracy.
    c) Zaktualizowac `AGENTS.md`, aby dla agentow domyslna walidacja po zmianach byla `make check`, a nie `npm run check`.
    d) Zaktualizowac `docs/system-map.md`, aby uwzglednic Docker Compose jako domyslne lokalne narzedzie buildowe.
    e) Zaktualizowac `docs/runbooks/002-smoke-test-po-zmianach.md`, aby podstawowa sciezka smoke testu uzywala `make check`.
-   f) Zaktualizowac `scripts/README.md`, jesli dodany workflow zmieni opis helperow.
+   f) Zaktualizowac `scripts/README.md`, jesli dodany przeplyw pracy zmieni opis helperow.
    g) Zaktualizowac `.github/PULL_REQUEST_TEMPLATE.md`, jesli checklisty lub weryfikacja wskazuja obecnie lokalny `npm run check` jako glowna komende.
 
 ## Zasady realizacji
@@ -85,7 +85,7 @@ bez lokalnego `npm install`, lokalnego `node_modules/` i lokalnej instalacji Nod
    a) Uzasadnienie: uzytkownik ma pamietac `make build`, a szczegoly Compose zostaja w repo.
 
 5. Dokumentacja powinna promowac `make` jako sciezke domyslna.
-   a) Uzasadnienie: glowny cel zmiany to usuniecie wymogu lokalnego npm z typowego workflow.
+   a) Uzasadnienie: glowny cel zmiany to usuniecie wymogu lokalnego npm z typowego przeplywu pracy.
 
 6. Cache npm powinien byc trwaly miedzy buildami.
    a) Implementacja ma uzyc nazwanego wolumenu Docker dla cache npm.
@@ -121,7 +121,7 @@ make deps-clean
 4. Na hoscie nie powstaje lokalny `node_modules/`.
 5. Wygenerowane pliki w `dist/` sa zapisywalne/usuwalne przez uzytkownika hosta.
 6. README wskazuje `make build` jako domyslny sposob budowania rozszerzenia.
-7. README nie opisuje lokalnego `npm` jako wspieranego workflow lokalnego.
+7. README nie opisuje lokalnego `npm` jako wspieranego lokalnego przeplywu pracy.
 8. AGENTS i runbook smoke testu wskazuja `make check` jako domyslna walidacje lokalna.
 
 ## Plan weryfikacji
@@ -157,4 +157,4 @@ make build
 ## Rozstrzygniete decyzje
 
 1. `make check` ma byc rekomendowana podstawowa walidacja lokalna.
-2. `npm run check` pozostaje komenda techniczna dla kontenera i CI, ale nie jest wspieranym workflow lokalnym w dokumentacji projektu.
+2. `npm run check` pozostaje komenda techniczna dla kontenera i CI, ale nie jest wspieranym lokalnym przeplywem pracy w dokumentacji projektu.

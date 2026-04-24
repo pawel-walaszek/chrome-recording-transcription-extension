@@ -1,28 +1,28 @@
-# Goal
+# Cel
 
-Briefly describe what changes and why.
+Krótko opisz, co się zmienia i dlaczego.
 
-## Scope
+## Zakres
 
 1. 
 2. 
 
-## Verification
+## Weryfikacja
 
 1. `make check`
-2. Manual Chrome extension smoke test, if browser behavior changed:
-   a) load `dist/` in `chrome://extensions`
-   b) test transcript download on Google Meet
-   c) test recording start/stop when capture or offscreen code changed
+2. Ręczny smoke test rozszerzenia Chrome, jeśli zmieniło się zachowanie w przeglądarce:
+   a) załaduj `dist/` w `chrome://extensions`
+   b) sprawdź pobieranie transkrypcji na Google Meet
+   c) sprawdź start/stop nagrywania, jeśli zmienił się kod przechwytywania albo offscreen
 
-## Chrome Extension Impact
+## Wpływ na rozszerzenie Chrome
 
-- [ ] `manifest.json` permissions unchanged.
-- [ ] If permissions changed, the reason is explained in this PR.
-- [ ] Generated `dist/` files are not committed.
+- [ ] Uprawnienia w `manifest.json` bez zmian.
+- [ ] Jeśli uprawnienia się zmieniły, powód jest wyjaśniony w tym PR.
+- [ ] Wygenerowane pliki `dist/` nie są commitowane.
 
 ## Checklist
 
-- [ ] The change is limited to the stated scope.
-- [ ] Documentation was updated when needed.
-- [ ] No secrets, recordings, transcripts, or local artifacts were added.
+- [ ] Zmiana jest ograniczona do opisanego zakresu.
+- [ ] Dokumentacja została zaktualizowana, jeśli było to potrzebne.
+- [ ] Nie dodano sekretów, nagrań, transkrypcji ani lokalnych artefaktów.

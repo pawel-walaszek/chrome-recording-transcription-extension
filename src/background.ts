@@ -153,7 +153,7 @@ function isRecoverableOffscreenStartFailure(error: unknown): boolean {
     message.includes('Cannot capture a tab with an active stream')
 }
 
-// background side streamId helper
+// Helper streamId po stronie tła.
 function getStreamIdForTab(tabId: number): Promise<string> {
   return new Promise((resolve, reject) => {
     try {

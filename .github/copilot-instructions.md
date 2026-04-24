@@ -1,37 +1,37 @@
-# GitHub Copilot Instructions
+# Instrukcje GitHub Copilot
 
-Follow these rules when generating code, comments, or review feedback in this repository.
+Stosuj te zasady przy generowaniu kodu, komentarzy i uwag review w tym repozytorium.
 
-## Project Context
+## Kontekst projektu
 
-- This is a Chrome Manifest V3 extension for Google Meet.
-- Source code is TypeScript in `src/`.
-- webpack builds JavaScript entrypoints and copies `manifest.json` plus HTML files to `dist/`.
-- There is no backend service, database, or deployment target.
+1. To rozszerzenie Chrome Manifest V3 dla Google Meet.
+2. Kod źródłowy to TypeScript w `src/`.
+3. webpack buduje entrypointy JavaScript i kopiuje `manifest.json` oraz pliki HTML do `dist/`.
+4. Projekt nie ma backendu, bazy danych ani celu wdrożenia.
 
-## Review Priorities
+## Priorytety review
 
-1. Functional regressions in transcript collection, tab capture, offscreen recording, downloads, and microphone permission flow.
-2. Security and privacy risks, especially unnecessary Chrome permissions or data leaving the browser.
-3. Missing validation for changed behavior.
-4. Inconsistency with the existing simple TypeScript/webpack structure.
-5. Unnecessary complexity or broad refactors.
+1. Regresje funkcjonalne w zbieraniu transkrypcji, przechwytywaniu karty, nagrywaniu offscreen, pobieraniu plików i przepływie uprawnień mikrofonu.
+2. Ryzyka bezpieczeństwa i prywatności, szczególnie niepotrzebne uprawnienia Chrome albo dane opuszczające przeglądarkę.
+3. Brak walidacji dla zmienionego zachowania.
+4. Niespójność z istniejącą prostą strukturą TypeScript/webpack.
+5. Niepotrzebna złożoność albo szerokie refaktory.
 
-## Review Completeness
+## Kompletność review
 
-- In a single review round, report all actionable issues you can identify.
-- Do not intentionally drip-feed findings across multiple review rounds.
-- Later review rounds should focus on newly introduced changes, unresolved findings, or issues that were not reasonably visible in the previous round.
-- If there are many findings, group related issues and prioritize the highest-risk items first.
+1. W jednej rundzie review zgłoś wszystkie możliwe do wdrożenia uwagi, które potrafisz zidentyfikować.
+2. Nie cedź celowo uwag przez wiele rund review.
+3. Kolejne rundy powinny skupiać się na nowo wprowadzonych zmianach, nierozwiązanych uwagach albo problemach, które nie były rozsądnie widoczne w poprzedniej rundzie.
+4. Jeśli uwag jest dużo, grupuj powiązane problemy i zaczynaj od tych o najwyższym ryzyku.
 
-## Style
+## Styl
 
-- Keep public README and user-facing extension text in English unless the task explicitly changes that.
-- Keep agent/process documentation in Polish when it targets the local workflow.
-- Avoid cosmetic review comments unless they affect behavior, maintainability, or readability.
-- Prefer small, concrete suggestions tied to a specific file and scenario.
+1. Trzymaj publiczną, agentową i procesową dokumentację po polsku.
+2. Teksty widoczne dla użytkownika rozszerzenia zmieniaj tylko wtedy, gdy zadanie wyraźnie tego dotyczy.
+3. Unikaj kosmetycznych komentarzy review, chyba że wpływają na zachowanie, utrzymywalność albo czytelność.
+4. Preferuj małe, konkretne sugestie powiązane z konkretnym plikiem i scenariuszem.
 
-## Validation
+## Walidacja
 
-- Use `make check` for code/config changes.
-- Ask for or describe manual Chrome extension testing when browser behavior changes.
+1. Używaj `make check` dla zmian w kodzie albo konfiguracji.
+2. Poproś o ręczne testy rozszerzenia Chrome albo opisz je, gdy zmienia się zachowanie w przeglądarce.

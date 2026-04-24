@@ -1,11 +1,11 @@
 # Scripts
 
-Helper scripts for local project workflows. The default build and validation entrypoints are Make targets backed by Docker Compose.
+Skrypty pomocnicze dla lokalnych przepływów pracy projektu. Domyślne punkty wejścia do builda i walidacji to targety Make oparte o Docker Compose.
 
-## Available scripts
+## Dostępne skrypty
 
-- `smoke-test.sh` - runs the local validation command used before manual Chrome extension testing.
+1. `smoke-test.sh` - uruchamia lokalną komendę walidacyjną używaną przed ręcznym testowaniem rozszerzenia Chrome.
 
-Prefer `make check` for day-to-day validation. Use scripts directly only when a Make target points to them or when debugging the helper itself.
+Do codziennej walidacji preferuj `make check`. Uruchamiaj skrypty bezpośrednio tylko wtedy, gdy wskazuje na nie target Make albo gdy debugujesz sam helper.
 
-Run scripts from the repository root.
+Uruchamiaj skrypty z głównego katalogu repozytorium.

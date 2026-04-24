@@ -1,27 +1,27 @@
-# Spec: <short title>
+# Specyfikacja: <krótki tytuł>
 
-## Goal
+## Cel
 
-Describe the user-visible result.
+Opisz rezultat widoczny dla użytkownika.
 
-## Scope
+## Zakres
 
-- In scope:
-- Out of scope:
+1. W zakresie:
+2. Poza zakresem:
 
-## Current Behavior
+## Obecne zachowanie
 
-Describe the relevant current behavior and files.
+Opisz istotne obecne zachowanie i pliki.
 
-## Proposed Change
+## Proponowana zmiana
 
-Describe the implementation approach.
+Opisz podejście implementacyjne.
 
-## Acceptance Criteria
+## Kryteria akceptacji
 
-- 
+1.
 
-## Verification
+## Weryfikacja
 
-- `make check`
-- Manual Chrome extension smoke test, if browser behavior changes.
+1. `make check`
+2. Ręczny smoke test rozszerzenia Chrome, jeśli zmienia się zachowanie w przeglądarce.

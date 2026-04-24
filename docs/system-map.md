@@ -1,36 +1,36 @@
-# System Map
+# Mapa systemu
 
-## Purpose
+## Cel
 
-This repository builds a Chrome Manifest V3 extension that works on `https://meet.google.com/*`.
+To repozytorium buduje rozszerzenie Chrome Manifest V3 działające na `https://meet.google.com/*`.
 
-The extension saves Google Meet captions as a local `.txt` transcript and can record the current Meet tab to a local `.webm` file. Recording and transcript export happen in the browser.
+Rozszerzenie zapisuje napisy Google Meet jako lokalną transkrypcję `.txt` i może nagrywać bieżącą kartę Meet do lokalnego pliku `.webm`. Nagrywanie i eksport transkrypcji odbywają się w przeglądarce.
 
-## Components
+## Komponenty
 
-| Component | Path | Role |
+| Komponent | Ścieżka | Rola |
 | --- | --- | --- |
-| Manifest | `manifest.json` | Declares MV3 metadata, permissions, content scripts, background worker, and accessible resources. |
-| Popup | `popup.html`, `src/popup.ts` | User controls for transcript download, microphone permission, and recording start/stop. |
-| Background service worker | `src/background.ts` | Coordinates tab capture, offscreen document lifecycle, recording state, badge, and downloads. |
-| Offscreen recorder | `offscreen.html`, `src/offscreen.ts` | Captures tab media, optionally mixes microphone audio, records via `MediaRecorder`, and returns a blob URL for download. |
-| Mic setup page | `micsetup.html`, `src/micsetup.ts` | Visible extension page used to request microphone permission when popup prompting is unreliable. |
-| Caption collector | `src/scrapingScript.ts` | Content script that observes Google Meet caption DOM and buffers transcript lines. |
-| Container build | `compose.yml`, `Makefile` | Default local build and validation entrypoint. Runs npm inside Docker Compose without local Node.js. |
-| Build | `webpack.config.js`, `tsconfig.json` | Compiles TypeScript entrypoints and copies static extension files into `dist/`. |
+| Manifest | `manifest.json` | Deklaruje metadane MV3, uprawnienia, skrypty treści, worker tła i dostępne zasoby. |
+| Popup | `popup.html`, `src/popup.ts` | Kontrolki użytkownika do pobierania transkrypcji, nadawania uprawnień mikrofonu oraz startu/stopu nagrywania. |
+| Service worker tła | `src/background.ts` | Koordynuje przechwytywanie karty, cykl życia dokumentu offscreen, stan nagrywania, znacznik i pobieranie plików. |
+| Nagrywarka offscreen | `offscreen.html`, `src/offscreen.ts` | Przechwytuje media z karty, opcjonalnie miksuje audio mikrofonu, nagrywa przez `MediaRecorder` i zwraca URL blobu do pobrania. |
+| Strona konfiguracji mikrofonu | `micsetup.html`, `src/micsetup.ts` | Widoczna strona rozszerzenia używana do nadania uprawnienia mikrofonu, gdy prośba o dostęp w popupie jest zawodna. |
+| Kolektor napisów | `src/scrapingScript.ts` | Skrypt treści obserwujący DOM napisów Google Meet i buforujący linie transkrypcji. |
+| Build kontenerowy | `compose.yml`, `Makefile` | Domyślny lokalny punkt wejścia do builda i walidacji. Uruchamia npm w Docker Compose bez lokalnego Node.js. |
+| Build webpacka | `webpack.config.js`, `tsconfig.json` | Kompiluje entrypointy TypeScript i kopiuje statyczne pliki rozszerzenia do `dist/`. |
 
-## Runtime Boundaries
+## Granice uruchomieniowe
 
-- Host scope is limited to Google Meet via `host_permissions`.
-- Output files are saved locally through the Chrome Downloads API.
-- The extension does not require a backend service, database, or cloud storage.
-- `dist/` is generated build output and should not be edited manually.
+1. Zakres hosta jest ograniczony do Google Meet przez `host_permissions`.
+2. Pliki wynikowe są zapisywane lokalnie przez Chrome Downloads API.
+3. Rozszerzenie nie wymaga backendu, bazy danych ani przechowywania w chmurze.
+4. `dist/` jest wygenerowanym wynikiem builda i nie powinien być edytowany ręcznie.
 
-## Local Validation
+## Lokalna walidacja
 
-1. Run `make check`.
-2. Load `dist/` in `chrome://extensions`.
-3. Test on a Google Meet page with captions enabled for transcript behavior.
-4. Test recording start/stop and download behavior when touching capture, offscreen, or permission code.
+1. Uruchom `make check`.
+2. Załaduj `dist/` w `chrome://extensions`.
+3. Sprawdź działanie transkrypcji na stronie Google Meet z włączonymi napisami.
+4. Sprawdź start/stop nagrywania i pobieranie pliku, jeśli zmieniasz kod przechwytywania, offscreen albo uprawnień.
 
-GitHub Actions may still call npm scripts directly, but the supported local workflow is `make`.
+GitHub Actions może nadal wywoływać skrypty npm bezpośrednio, ale wspierany lokalny przepływ pracy to `make`.

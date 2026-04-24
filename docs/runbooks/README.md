@@ -1,5 +1,5 @@
 # Runbooks
 
-Repeatable procedures for validating and maintaining this extension.
+Powtarzalne procedury walidacji i utrzymania tego rozszerzenia.
 
-- [Smoke test after changes](002-smoke-test-po-zmianach.md)
+1. [Smoke test po zmianach](002-smoke-test-po-zmianach.md)

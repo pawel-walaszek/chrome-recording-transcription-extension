@@ -1,7 +1,7 @@
-# Specs
+# Specyfikacje
 
-Use this directory for short implementation specs when a change is larger than a direct bug fix.
+Używaj tego katalogu na krótkie specyfikacje implementacyjne, gdy zmiana jest większa niż bezpośredni bugfix.
 
-Use numbered filenames: `NNN-short-title.md`, for example `001-recording-error-state.md`.
+Używaj numerowanych nazw plików: `NNN-krotki-tytul.md`, na przykład `001-stan-bledu-nagrywania.md`.
 
-Start from [_template.md](_template.md), then keep only sections that help with the specific change.
+Zacznij od [_template.md](_template.md), a potem zostaw tylko sekcje pomocne dla konkretnej zmiany.
