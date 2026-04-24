@@ -19,4 +19,4 @@ body:
     id: verification
     attributes:
       label: Verification
-      description: Expected checks, for example npm run check or manual extension smoke test.
+      description: Expected checks, for example make check or manual extension smoke test.

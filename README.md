@@ -33,37 +33,44 @@ If you'd rather use a bot or desktop recording form factor, check out [Recall.ai
 
 **Google Chrome** (or Chromium-based browser) with `Manifest V3` support and the `Offscreen API`.
 
-**Node.js 18+** and **npm** (or **pnpm/yarn**) to build the extension.
+**Docker** with **Docker Compose v2** and **make** to build the extension without installing Node.js locally.
+
+Node.js 18+ and npm can still be used as an alternative local workflow.
 
 The extension uses the following Chrome permissions:
 `activeTab`, `downloads`, `tabCapture`, `offscreen`, `storage`, `tabs`, `desktopCapture`
 and is scoped to `https://meet.google.com/*`.
 
 ## Quick start
-1) Clone and install
+
+1. Clone
+
 ```
 git clone https://github.com/recallai/chrome-recording-transcription-extension.git
 cd chrome-recording-transcription-extension
-npm install
 ```
 
-2) Build
+2. Build in a container
+
 ```
-npm run build   # outputs to `./dist`
+make build
 ```
 
-3) Load into Chrome
-- Open `chrome://extensions`
-- Toggle "Developer mode" (top right)
-- Click "Load unpacked"
-- Select the `./dist` folder
+This uses Docker Compose and writes the extension package to `./dist`.
+
+3. Load into Chrome
+
+   a) Open `chrome://extensions`.
+   b) Toggle `Developer mode`.
+   c) Click `Load unpacked`.
+   d) Select the `./dist` folder.
 
 ## Development workflow
 
 Before opening a PR or handing changes to another agent, run:
 
 ```
-npm run check
+make check
 ```
 
 For browser-facing changes, also follow the smoke test in [`docs/runbooks/002-smoke-test-po-zmianach.md`](docs/runbooks/002-smoke-test-po-zmianach.md): rebuild, reload `dist/` in `chrome://extensions`, then validate transcript download and recording on Google Meet when relevant.
@@ -76,37 +83,45 @@ Open a Google Meet, click the extension icon:
 
 ## Install & build (detailed)
 
-**1. Install Node**
-  - macOS: `brew install node`
+**1. Install Docker and make**
 
-  - Ubuntu/Debian: `sudo apt-get install -y nodejs npm`
+Docker must provide the `docker compose` command.
 
-  - Verify: `node -v && npm -v`
-
-**2. Install dependencies**
+Verify:
 
 ```
-npm install
+docker compose version
+make --version
 ```
 
-
-**3. Build once (production)**
+**2. Build once (production)**
 
 ```
-npm run build
+make build
 ```
 
-This compiles TypeScript via `ts-loader` and copies the HTML/manifest to `dist/`.
+This runs `npm ci` and a production webpack build inside the `node:20-bookworm-slim` container. Dependencies are kept in Docker volumes, not in a local `node_modules/` directory. The generated extension is written to `dist/`.
 
-**4. Load the extension**
+**3. Load the extension**
 
   - Visit `chrome://extensions`
   - Turn on `Developer mode`
-  - Click `Load unpacked` → select the `dist` directory that was created inside your repo when you ran `npm run build`
+  - Click `Load unpacked` → select the `dist` directory that was created inside your repo when you ran `make build`
 
-> During development you can also run:
-> `npm run watch` which will force a rebuild on file changes (when you save a file)
-> After each rebuild, click Reload on the extension (in `chrome://extensions`) to pick up changes. If you changed the service worker or manifest, you must reload the extension; for content script-only changes, a page refresh of the Google Meet tab may be enough.
+**Alternative: local Node.js/npm**
+
+If you intentionally want to build without Docker, install Node.js 18+ and npm, then run:
+
+```
+npm install
+npm run build
+```
+
+The containerized `make build` workflow is the default path for this project.
+
+> During development you can also run `npm run watch` if you are using local Node.js.
+> After each rebuild, click Reload on the extension in `chrome://extensions` to pick up changes. If you changed the service worker or manifest, you must reload the extension; for content script-only changes, a page refresh of the Google Meet tab may be enough.
+
 
 ## Using the extension
 
@@ -135,6 +150,8 @@ This compiles TypeScript via `ts-loader` and copies the HTML/manifest to `dist/`
 ├─ webpack.config.js
 ├─ tsconfig.json
 ├─ package.json
+├─ compose.yml
+├─ Makefile
 ├─ popup.html
 ├─ offscreen.html
 ├─ micsetup.html
@@ -162,13 +179,23 @@ const WANT_MIC_MIX = true
   - Recordings: `google-meet-recording-<meet-suffix>-<timestamp>.webm`
   - Transcripts: `google-meet-transcript-<meet-suffix>-<timestamp>.txt`
 
-## Scripts
+## Build commands
+
+`make build` – default production build to `dist/` using Docker Compose
+`make check` – default validation: typecheck and production build in a container
+`make shell` – open a shell in the build container
+`make clean` – remove generated `dist/`
+`make deps-clean` – remove Docker Compose dependency/cache volumes
+
+## Local npm scripts
 
 `npm run build` – single production build to `dist/`
 `npm run typecheck` – run TypeScript validation without emitting files
 `npm run check` – run typecheck and production build
-`npm run smoke` – run the local smoke-test helper
+`npm run smoke` – run the smoke-test helper
 `npm run watch` – rebuild on change (remember to reload the extension in Chrome)
+
+The npm scripts are mostly used inside the build container. They are also available for the alternative local Node.js workflow.
 
 ## Dependencies & toolchain
 
@@ -234,7 +261,8 @@ Answer:
 
 ## Development tips
 
- - Use `npm run watch` during iteration.
+ - Use `make build` for the default containerized production build.
+ - Use `npm run watch` during iteration only when using local Node.js.
  - Background logs appear in the `service worker` console:
     - `chrome://extensions` → your extension → `service worker` → `Inspect`
  - Offscreen logs: open `chrome://extensions` → your extension → `service worker` → look for messages from `[offscreen]`.

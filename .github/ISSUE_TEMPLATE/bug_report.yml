@@ -16,7 +16,7 @@ body:
       label: Steps to reproduce
       description: Include the page type, extension action, and whether captions or recording were involved.
       placeholder: |
-        1. Run npm run build
+        1. Run make build
         2. Load dist/ in chrome://extensions
         3. Open a Google Meet...
     validations:

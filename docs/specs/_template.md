@@ -23,5 +23,5 @@ Describe the implementation approach.
 
 ## Verification
 
-- `npm run check`
+- `make check`
 - Manual Chrome extension smoke test, if browser behavior changes.
