@@ -63,8 +63,10 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
    b) Poczekaj na wynik review.
    c) Jesli Copilot zglosi uwagi, nie wdrazaj ich automatycznie.
    d) Zbierz uwagi Copilota i przedstaw je czlowiekowi do decyzji, najlepiej pojedynczo.
-   e) Kazda uwage omow z czlowiekiem przed zmiana w kodzie.
-   f) Dopiero po zatwierdzeniu konkretnej uwagi przez czlowieka wprowadz zmiane.
+   e) Przy omawianiu uwagi podaj wystarczajacy kontekst techniczny, zeby czlowiek mogl podjac decyzje bez znajomosci detali implementacji.
+   f) Wyjasnij, czego uwaga dotyczy, jaki jest praktyczny skutek, jakie sa sensowne opcje i jaka opcje rekomendujesz.
+   g) Kazda uwage omow z czlowiekiem przed zmiana w kodzie.
+   h) Dopiero po zatwierdzeniu konkretnej uwagi przez czlowieka wprowadz zmiane.
 
 3. Odpowiedzi do review
    a) Na kazda uwage Copilota odpowiedz w watku:

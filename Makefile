@@ -22,4 +22,4 @@ deps-clean:
 	$(COMPOSE) down --volumes --remove-orphans
 
 prepare-deps:
-	$(COMPOSE) run --rm --user root builder sh -lc 'mkdir -p /workspace/node_modules /workspace/dist /home/node/.npm && npm ci && chown "$$HOST_UID:$$HOST_GID" /workspace /workspace/dist && chown -R "$$HOST_UID:$$HOST_GID" /workspace/node_modules /home/node/.npm'
+	$(COMPOSE) run --rm --user root builder sh -lc 'mkdir -p /workspace/node_modules /workspace/dist /home/node/.npm && chown "$$HOST_UID:$$HOST_GID" /workspace /workspace/dist && npm ci; status=$$?; chown "$$HOST_UID:$$HOST_GID" /workspace /workspace/dist; chown -R "$$HOST_UID:$$HOST_GID" /workspace/node_modules /home/node/.npm; exit $$status'
