@@ -22,16 +22,32 @@ if [ -z "${SENTRY_AUTH_TOKEN:-}" ] ||
   exit 0
 fi
 
+if ! command -v curl >/dev/null 2>&1; then
+  printf '%s\n' 'sentry-public-dsn.sh: missing required dependency: curl' >&2
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  printf '%s\n' 'sentry-public-dsn.sh: missing required dependency: python3' >&2
+  exit 1
+fi
+
 api_base="${SENTRY_BASE_URL%/}"
 case "$api_base" in
   */api/0) ;;
   *) api_base="$api_base/api/0" ;;
 esac
 
-curl -fsS \
-  -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" \
-  "$api_base/projects/$SENTRY_ORG_SLUG/$SENTRY_PROJECT_SLUG/keys/" |
-  python3 -c 'import json, sys
+response="$(
+  curl -fsS \
+    -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" \
+    "$api_base/projects/$SENTRY_ORG_SLUG/$SENTRY_PROJECT_SLUG/keys/"
+)" || {
+  printf '%s\n' "sentry-public-dsn.sh: failed to fetch Sentry project keys from $api_base" >&2
+  exit 1
+}
+
+printf '%s' "$response" | python3 -c 'import json, sys
 keys = json.load(sys.stdin)
 if not keys:
     sys.exit(0)

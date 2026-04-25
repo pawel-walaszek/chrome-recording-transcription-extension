@@ -1,7 +1,7 @@
 COMPOSE ?= docker compose
 HOST_UID ?= $(shell id -u)
 HOST_GID ?= $(shell id -g)
-SENTRY_DSN ?= $(shell scripts/sentry-public-dsn.sh 2>/dev/null || true)
+SENTRY_DSN ?= $(shell scripts/sentry-public-dsn.sh || true)
 SENTRY_ENVIRONMENT ?= chrome-extension-dev
 export HOST_UID
 export HOST_GID

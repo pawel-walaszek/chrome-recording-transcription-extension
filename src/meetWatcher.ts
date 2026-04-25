@@ -10,6 +10,7 @@ const ABSENT_CONFIRMATIONS = 3
 
 let lastSentInMeeting: boolean | null = null
 let absentCount = 0
+let scheduledTick: number | null = null
 
 function hasMeetingPath(): boolean {
   return location.hostname === 'meet.google.com' && MEETING_PATH_RE.test(location.pathname)
@@ -67,6 +68,7 @@ function sendMeetingState(inMeeting: boolean): void {
 }
 
 function tick(): void {
+  scheduledTick = null
   try {
     const detected = detectInMeeting()
     if (detected) {
@@ -89,10 +91,15 @@ function tick(): void {
   }
 }
 
+function scheduleTick(): void {
+  if (scheduledTick !== null) return
+  scheduledTick = window.setTimeout(() => tick(), POLL_MS)
+}
+
 tick()
 setInterval(tick, POLL_MS)
 
-const observer = new MutationObserver(() => tick())
+const observer = new MutationObserver(() => scheduleTick())
 observer.observe(document.documentElement, {
   childList: true,
   subtree: true,

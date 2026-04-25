@@ -212,7 +212,7 @@ Są już zadeklarowane w `package.json`:
 4. `offscreen` - tworzenie dokumentu offscreen dla logiki nagrywania działającej w tle.
 5. `storage` - zapis tymczasowych wskazówek o stanie nagrywania dla synchronizacji UI.
 6. `host_permissions` dla `https://sentry.eengine.pl/*` - wysyłka zdarzeń diagnostycznych do Sentry, gdy build zawiera DSN.
-7. `host_permissions` dla `https://meet.google.com/*` - content script wykrywa wejście i wyjście ze spotkania, żeby pokazać stan `RDY` i automatycznie zatrzymać nagrywanie po opuszczeniu spotkania.
+7. `content_scripts` dla `https://meet.google.com/*` - content script wykrywa wejście i wyjście ze spotkania, żeby pokazać stan `RDY` i automatycznie zatrzymać nagrywanie po opuszczeniu spotkania.
 
 ## Rozwiązywanie problemów / FAQ
 
