@@ -6,7 +6,6 @@ module.exports = {
   mode: 'production',
   devtool: false,
   entry: {
-    scrapingScript: './src/scrapingScript.ts',
     popup: './src/popup.ts',
     background: './src/background.ts',
     offscreen: './src/offscreen.ts',

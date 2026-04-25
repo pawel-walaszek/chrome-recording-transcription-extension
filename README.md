@@ -1,6 +1,6 @@
 # Rozszerzenie Chrome do nagrywania spotkań
 
-Zbiera napisy na żywo z Google Meet i zapisuje je jako transkrypcję `.txt` albo nagrywa bieżącą kartę Google Meet (wideo + audio) do pliku `.webm`. Opcjonalnie może domiksować mikrofon, żeby w nagraniu był też Twój głos.
+Nagrywa bieżącą kartę Google Meet (wideo + audio) do pliku `.webm`. Opcjonalnie może domiksować mikrofon, żeby w nagraniu był też Twój głos.
 
 Wszystko dzieje się lokalnie w przeglądarce.
 
@@ -11,8 +11,6 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 ## Funkcje
 
-**Zapisywanie transkrypcji** - parsuje napisy na żywo z Google Meet i pobiera plik `.txt` ze znacznikiem czasu.
-
 **Nagrywanie karty** - przechwytuje wideo i audio z karty Google Meet do pliku `.webm` przez `MediaRecorder`.
 
 **Opcjonalne domiksowanie mikrofonu** - dodaje mikrofon do nagrania po udzieleniu uprawnienia.
@@ -21,13 +19,11 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 ## Jak to działa
 
-1. Skrypt treści obserwuje DOM napisów Google Meet i buforuje tekst ze znacznikami czasu.
+1. Popup pozwala przygotować mikrofon oraz sterować nagrywaniem.
 
-2. Popup pozwala pobrać transkrypcję albo sterować nagrywaniem.
+2. Service worker w tle tworzy i koordynuje dokument offscreen oraz pobiera właściwy `streamId` przechwytywania dla aktywnej karty.
 
-3. Service worker w tle tworzy i koordynuje dokument offscreen oraz pobiera właściwy `streamId` przechwytywania dla aktywnej karty.
-
-4. Strona offscreen przechwytuje kartę, opcjonalnie miksuje audio z mikrofonu, nagrywa i przekazuje blob do pobrania.
+3. Strona offscreen przechwytuje kartę, opcjonalnie miksuje audio z mikrofonu, nagrywa i przekazuje blob do pobrania.
 
 ## Wymagania
 
@@ -36,8 +32,7 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 **Docker** z **Docker Compose v2** oraz **make**, żeby budować rozszerzenie bez lokalnej instalacji Node.js.
 
 Rozszerzenie używa następujących uprawnień Chrome:
-`activeTab`, `downloads`, `tabCapture`, `offscreen`, `storage`, `tabs`, `desktopCapture`
-i jest ograniczone do `https://meet.google.com/*`.
+`activeTab`, `downloads`, `tabCapture`, `offscreen`, `storage`, `tabs`, `desktopCapture`.
 
 ## Szybki start
 
@@ -71,13 +66,12 @@ Przed otwarciem PR albo przekazaniem zmian innemu agentowi uruchom:
 make check
 ```
 
-Przy zmianach widocznych w przeglądarce wykonaj też test dymny z [`docs/runbooks/002-smoke-test-po-zmianach.md`](docs/runbooks/002-smoke-test-po-zmianach.md): przebuduj projekt, przeładuj `dist/` w `chrome://extensions`, a następnie sprawdź pobieranie transkrypcji i nagrywanie w Google Meet, jeśli zmiana ich dotyczy.
+Przy zmianach widocznych w przeglądarce wykonaj też test dymny z [`docs/runbooks/002-smoke-test-po-zmianach.md`](docs/runbooks/002-smoke-test-po-zmianach.md): przebuduj projekt, przeładuj `dist/` w `chrome://extensions`, a następnie sprawdź nagrywanie w Google Meet, jeśli zmiana go dotyczy.
 
 
 Otwórz Google Meet i kliknij ikonę rozszerzenia:
-1. **Download Transcript** - zapisuje `.txt` z napisami na żywo; włącz napisy w Google Meet.
-2. **Enable Microphone** - nadaje uprawnienie mikrofonu, żeby Twój głos mógł zostać domiksowany do nagrania.
-3. **Start Recording (tab) / Stop & Download** - tworzy plik `.webm` przez Downloads API.
+1. **Enable Microphone** - nadaje uprawnienie mikrofonu, żeby Twój głos mógł zostać domiksowany do nagrania.
+2. **Start Recording / Stop & Download** - tworzy plik `.webm` przez Downloads API.
 
 ## Instalacja i budowanie
 
@@ -106,26 +100,22 @@ To uruchamia `npm ci` i produkcyjny build webpacka w kontenerze `node:20-bookwor
 2. Włącz `Developer mode`.
 3. Kliknij `Load unpacked` i wybierz katalog `dist`, który powstał w repo po uruchomieniu `make build`.
 
-Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://extensions`, żeby Chrome wczytał zmiany. Jeśli zmienił się service worker albo manifest, rozszerzenie trzeba przeładować; przy zmianach tylko w skrypcie treści może wystarczyć odświeżenie karty Google Meet.
+Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://extensions`, żeby Chrome wczytał zmiany. Jeśli zmienił się service worker albo manifest, rozszerzenie trzeba przeładować.
 
 
 ## Używanie rozszerzenia
 
 1. Otwórz Google Meet pod adresem `https://meet.google.com/...`.
 
-2. Dla transkrypcji włącz napisy w Google Meet.
+2. Kliknij ikonę rozszerzenia; możesz przypiąć je w menu puzzla dla szybszego dostępu.
 
-3. Kliknij ikonę rozszerzenia; możesz przypiąć je w menu puzzla dla szybszego dostępu.
-
-4. W popupie:
+3. W popupie:
  
-   a) **Download Transcript**: włącz napisy, a po spotkaniu kliknij `Download Transcript`. Zapisze to plik **google-meet-transcript-<meeting-id>-<timestamp>.txt**.
-   b) **Recording**
-      - **Enable Microphone** - włącz przed kliknięciem `Start Recording`, żeby poza dźwiękiem innych uczestników nagrać też swój głos.
-      - Prośba o dostęp do mikrofonu może nie pojawiać się niezawodnie w popupie. W takim przypadku przycisk otwiera dedykowaną stronę `Enable Microphone` (`micsetup.html`), gdzie można kliknąć `Enable` i udzielić dostępu do mikrofonu.
-      - Po udzieleniu dostępu etykieta zmienia się na `Microphone Enabled`.
-   c) **Start Recording**: rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest włączony i miksowanie jest aktywne (domyślnie), mikrofon zostanie domiksowany.
-   d) **Stop & Download**: finalizuje i pobiera `google-meet-recording-<meeting-id>-<timestamp>.webm`.
+   a) **Enable Microphone** - włącz przed kliknięciem `Start Recording`, żeby poza dźwiękiem innych uczestników nagrać też swój głos.
+   b) Prośba o dostęp do mikrofonu może nie pojawiać się niezawodnie w popupie. W takim przypadku przycisk otwiera dedykowaną stronę `Enable Microphone` (`micsetup.html`), gdzie można kliknąć `Enable` i udzielić dostępu do mikrofonu.
+   c) Po udzieleniu dostępu etykieta zmienia się na `Microphone Enabled`.
+   d) **Start Recording**: rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest włączony i miksowanie jest aktywne (domyślnie), mikrofon zostanie domiksowany.
+   e) **Stop & Download**: finalizuje i pobiera `google-meet-recording-<meeting-id>-<timestamp>.webm`.
 
 > Podczas nagrywania rozszerzenie pokazuje znacznik `REC`. Wszystkie pliki są zapisywane lokalnie przez Chrome Downloads API.
 
@@ -147,8 +137,7 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 ├─ src/
 │  ├─ background.ts     # service worker MV3: tworzy offscreen i koordynuje strumienie
 │  ├─ offscreen.ts      # uruchamia nagrywarkę, miksuje mikrofon z kartą i zapisuje blob
-│  ├─ popup.ts          # obsługa popupu: transkrypcja, mikrofon, start/stop
-│  ├─ scrapingScript.ts # parsuje napisy Google Meet z DOM
+│  ├─ popup.ts          # obsługa popupu: mikrofon, start/stop
 │  └─ micsetup.ts       # widoczna strona do nadania uprawnienia mikrofonu
 └─ dist/                # wygenerowany wynik builda
 ```
@@ -163,7 +152,6 @@ const WANT_MIC_MIX = true
 
 2. Nazwy plików wynikowych
   a) Nagrania: `google-meet-recording-<meet-suffix>-<timestamp>.webm`
-  b) Transkrypcje: `google-meet-transcript-<meet-suffix>-<timestamp>.txt`
 
 ## Komendy builda
 
@@ -205,19 +193,12 @@ Są już zadeklarowane w `package.json`:
 ```
 ## Wyjaśnienie uprawnień
 1. `activeTab`, `tabs` - odczyt aktywnej karty, potrzebny do wskazania i opisania nagrania.
-2. `downloads` - lokalny zapis transkrypcji i nagrań.
+2. `downloads` - lokalny zapis nagrań.
 3. `tabCapture` / `desktopCapture` - przechwytywanie wideo i audio z bieżącej karty.
 4. `offscreen` - tworzenie dokumentu offscreen dla logiki nagrywania działającej w tle.
 5. `storage` - zapis tymczasowych wskazówek o stanie nagrywania dla synchronizacji UI.
-6. `host_permissions: ["https://meet.google.com/*"]` - ograniczenie skryptu treści do Google Meet.
 
 ## Rozwiązywanie problemów / FAQ
-
-Pytanie: Co zrobić, jeśli nie widzę żadnego tekstu transkrypcji?
-Odpowiedź:
-1. Upewnij się, że w UI Google Meet włączone są `Captions`.
-2. Rozszerzenie zbiera dane tylko z `https://meet.google.com/*`.
-3. Odśwież stronę Google Meet po załadowaniu albo przeładowaniu rozszerzenia.
 
 Pytanie: Co zrobić, gdy widzę `Failed to start recording: Offscreen not ready` albo podobny komunikat?
 Odpowiedź:
@@ -253,7 +234,6 @@ Odpowiedź:
 2. Logi tła są w konsoli `service worker`:
    a) `chrome://extensions` -> Twoje rozszerzenie -> `service worker` -> `Inspect`
 3. Logi offscreen: otwórz `chrome://extensions` -> Twoje rozszerzenie -> `service worker` i szukaj komunikatów z `[offscreen]`.
-4. Logi skryptu treści są w karcie Google Meet w DevTools Console.
 
 ### Podziękowania
 Zespołowi Recall.ai za możliwość budowania takich projektów, które pomagają ludziom w internecie uczyć się i tworzyć własne wersje.

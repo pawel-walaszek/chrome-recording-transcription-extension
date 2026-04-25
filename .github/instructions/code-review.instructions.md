@@ -2,7 +2,7 @@
 
 Priorytetyzuj uwagi w tej kolejności:
 
-1. Regresje zachowania w zbieraniu napisów Google Meet, kontrolkach popupu, komunikacji background/offscreen, nagrywaniu i pobieraniu plików.
+1. Regresje zachowania w kontrolkach popupu, komunikacji background/offscreen, nagrywaniu i pobieraniu plików.
 2. Ryzyka związane z uprawnieniami Chrome, prywatnością albo obsługą danych.
 3. Błędy builda albo pakowania.
 4. Brak testu albo smoke testu dla zmienionego zachowania.

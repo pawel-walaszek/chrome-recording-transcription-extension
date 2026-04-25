@@ -11,7 +11,7 @@ Stosuj te zasady przy generowaniu kodu, komentarzy i uwag review w tym repozytor
 
 ## Priorytety review
 
-1. Regresje funkcjonalne w zbieraniu transkrypcji, przechwytywaniu karty, nagrywaniu offscreen, pobieraniu plików i przepływie uprawnień mikrofonu.
+1. Regresje funkcjonalne w przechwytywaniu karty, nagrywaniu offscreen, pobieraniu plików i przepływie uprawnień mikrofonu.
 2. Ryzyka bezpieczeństwa i prywatności, szczególnie niepotrzebne uprawnienia Chrome albo dane opuszczające przeglądarkę.
 3. Brak walidacji dla zmienionego zachowania.
 4. Niespójność z istniejącą prostą strukturą TypeScript/webpack.

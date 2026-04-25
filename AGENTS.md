@@ -94,5 +94,4 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 
 - Po `make build` testuj przez zaladowanie katalogu `dist/` w `chrome://extensions`.
 - Po zmianach w `manifest.json`, `background.ts`, `offscreen.ts` albo plikach HTML przeladuj rozszerzenie w `chrome://extensions`.
-- Po zmianach w `scrapingScript.ts` odswiez aktywna karte Google Meet.
-- Nie dodawaj zewnetrznych uslug ani przesylania nagran/transkrypcji poza przegladarke bez jednoznacznej decyzji czlowieka.
+- Nie dodawaj zewnetrznych uslug ani przesylania nagran poza przegladarke bez jednoznacznej decyzji czlowieka.

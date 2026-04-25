@@ -133,7 +133,7 @@ make check
 ```
 
 2. Potwierdzic, ze nie powstal lokalny katalog `node_modules/`.
-3. Potwierdzic, ze `dist/manifest.json`, `dist/background.js`, `dist/popup.js`, `dist/offscreen.js`, `dist/scrapingScript.js` i `dist/micsetup.js` istnieja.
+3. Potwierdzic, ze `dist/manifest.json`, `dist/background.js`, `dist/popup.js`, `dist/offscreen.js` i `dist/micsetup.js` istnieja.
 4. Uruchomic:
 
 ```bash

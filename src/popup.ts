@@ -1,6 +1,5 @@
 // src/popup.ts
 
-const saveBtn = document.getElementById('save') as HTMLButtonElement | null;
 const micBtn = document.getElementById('enable-mic') as HTMLButtonElement | null;
 const startBtn = document.getElementById('start-rec') as HTMLButtonElement | null;
 const stopBtn = document.getElementById('stop-rec') as HTMLButtonElement | null;
@@ -97,38 +96,9 @@ micBtn?.addEventListener('click', async () => {
   }
 });
 
-// Ręczne pobieranie transkrypcji.
-saveBtn?.addEventListener('click', async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return;
-
-  const res = await chrome.tabs
-    .sendMessage(tab.id, { type: 'GET_TRANSCRIPT' })
-    .catch((_e) => {
-      toast('No transcript on this page');
-      return undefined;
-    });
-
-  const transcript = (res as any)?.transcript as string | undefined;
-  if (!transcript?.trim()) {
-    toast('Transcript is empty');
-    return;
-  }
-
-  const blob = new Blob([transcript], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const suffix =
-    new URL(tab.url ?? 'https://meet.google.com').pathname.split('/').pop() || 'google-meet';
-
-  chrome.downloads.download(
-    { url, filename: `google-meet-transcript-${suffix}-${Date.now()}.txt`, saveAs: true },
-    () => URL.revokeObjectURL(url)
-  );
-});
-
 let inFlight = false;
 
-// Start nagrywania. Resetuje też bufor transkrypcji dla nowej sesji.
+// Start nagrywania.
 startBtn?.addEventListener('click', async () => {
   if (!startBtn || !stopBtn || inFlight) return;
   inFlight = true;
@@ -155,11 +125,6 @@ startBtn?.addEventListener('click', async () => {
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error('No active tab');
-
-    // Reset bufora transkrypcji, żeby nowe spotkanie startowało czysto.
-    await chrome.tabs.sendMessage(tab.id, { type: 'RESET_TRANSCRIPT' }).catch(() => {
-      // Jeśli to jeszcze nie jest strona Google Meet, transkrypcja będzie później po prostu pusta.
-    });
 
     const resp = await chrome.runtime.sendMessage({ type: 'START_RECORDING', tabId: tab.id });
     if (!resp) throw new Error('No response from background');

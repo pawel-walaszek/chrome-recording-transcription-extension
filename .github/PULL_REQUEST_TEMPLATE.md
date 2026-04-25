@@ -12,8 +12,7 @@ Krótko opisz, co się zmienia i dlaczego.
 1. `make check`
 2. Ręczny smoke test rozszerzenia Chrome, jeśli zmieniło się zachowanie w przeglądarce:
    a) załaduj `dist/` w `chrome://extensions`
-   b) sprawdź pobieranie transkrypcji na Google Meet
-   c) sprawdź start/stop nagrywania, jeśli zmienił się kod przechwytywania albo offscreen
+   b) sprawdź start/stop nagrywania, jeśli zmienił się kod przechwytywania albo offscreen
 
 ## Wpływ na rozszerzenie Chrome
 
@@ -25,4 +24,4 @@ Krótko opisz, co się zmienia i dlaczego.
 
 - [ ] Zmiana jest ograniczona do opisanego zakresu.
 - [ ] Dokumentacja została zaktualizowana, jeśli było to potrzebne.
-- [ ] Nie dodano sekretów, nagrań, transkrypcji ani lokalnych artefaktów.
+- [ ] Nie dodano sekretów, nagrań ani lokalnych artefaktów.
