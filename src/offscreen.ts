@@ -1,6 +1,9 @@
 // src/offscreen.ts
 
-import { clearMicPreferences, getMicPreferences } from './micPreferences'
+import { captureException, captureMessage, initDiagnostics } from './diagnostics'
+import type { MicPreferences } from './micPreferences'
+
+initDiagnostics('offscreen')
 
 // Włączone oznacza dodanie lokalnego mikrofonu do miksu nagrania.
 // UWAGA: offscreen nie może pokazać początkowej prośby o uprawnienie mikrofonu.
@@ -11,9 +14,11 @@ const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
+  captureException(e?.error || e?.message, { operation: 'window.onerror' })
 })
 window.addEventListener('unhandledrejection', (e: any) => {
   console.error('[offscreen] unhandledrejection', e?.reason || e)
+  captureException(e?.reason || e, { operation: 'unhandledrejection' })
 })
 console.log('[offscreen] script loaded')
 
@@ -160,13 +165,25 @@ function attachRmsMeter(track: MediaStreamTrack, label: 'RAW' | 'FINAL') {
     })
   } catch (e) {
     log('meter setup failed (non-fatal)', e)
+    captureException(e, { operation: 'attachRmsMeter' })
   }
 }
 
 // Nagrywanie i miksowanie.
-async function maybeGetMicStream(): Promise<MediaStream | null> {
+async function requestClearMicPreferences(): Promise<void> {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'CLEAR_MIC_PREFERENCES' })
+    if (response?.ok === false) {
+      log('clear saved microphone preference failed:', response.error)
+    }
+  } catch (e) {
+    log('clear saved microphone preference failed:', e)
+    captureException(e, { operation: 'requestClearMicPreferences' })
+  }
+}
+
+async function maybeGetMicStream(prefs: MicPreferences): Promise<MediaStream | null> {
   if (!WANT_MIC_MIX) return null
-  const prefs = await getMicPreferences()
 
   if (prefs.preferredMicDeviceId) {
     try {
@@ -181,9 +198,10 @@ async function maybeGetMicStream(): Promise<MediaStream | null> {
       return mic
     } catch (e) {
       log('selected mic getUserMedia failed; falling back to default mic:', prefs.preferredMicLabel || prefs.preferredMicDeviceId, e)
+      captureException(e, { operation: 'selectedMicGetUserMedia' })
       if (isMissingSelectedMicError(e)) {
         log('selected mic is no longer available; clearing saved microphone preference')
-        await clearMicPreferences()
+        await requestClearMicPreferences()
       }
     }
   }
@@ -201,6 +219,7 @@ async function maybeGetMicStream(): Promise<MediaStream | null> {
     return mic
   } catch (e) {
     log('mic getUserMedia failed (continuing without mic):', e)
+    captureException(e, { operation: 'defaultMicGetUserMedia' })
     return null
   }
 }
@@ -219,6 +238,7 @@ function mixAudio(tabStream: MediaStream, micStream: MediaStream | null): MediaS
     tabSource.connect(dst)
   } catch (err) {
     log('tab source connect failed for mixing; using tab audio only', err)
+    captureException(err, { operation: 'mixTabAudio' })
     return tabStream
   }
 
@@ -230,6 +250,7 @@ function mixAudio(tabStream: MediaStream, micStream: MediaStream | null): MediaS
     }
   } catch (e) {
     log('mic source connect failed; continuing with tab audio only', e)
+    captureException(e, { operation: 'mixMicAudio' })
   }
 
   const final = new MediaStream([
@@ -272,6 +293,7 @@ async function captureWithStreamId(streamId: string): Promise<MediaStream> {
     return s
   } catch (e1: any) {
     log('[gUM] failed for chromeMediaSource=tab:', e1?.name || e1, e1?.message || e1)
+    captureException(e1, { operation: 'tabCaptureGetUserMedia' })
   }
   log(`Attempting getUserMedia with streamId ${streamId} source= desktop`)
   return await withStreamTimeout(
@@ -284,7 +306,7 @@ let mediaRecorder: MediaRecorder | null = null
 let chunks: BlobPart[] = []
 let capturing = false
 
-async function prepareAndRecord(baseStream: MediaStream): Promise<void> {
+async function prepareAndRecord(baseStream: MediaStream, micPreferences: MicPreferences): Promise<void> {
   trackStream(baseStream)
   const a = baseStream.getAudioTracks()
   const v = baseStream.getVideoTracks()
@@ -311,12 +333,13 @@ async function prepareAndRecord(baseStream: MediaStream): Promise<void> {
   const rawAudio = baseStream.getAudioTracks()[0]
   if (rawAudio) attachRmsMeter(rawAudio, 'RAW')
 
-  const micStream = await maybeGetMicStream()
+  const micStream = await maybeGetMicStream(micPreferences)
   const mixedStream = mixAudio(baseStream, micStream)
 
   const finalAudio = mixedStream.getAudioTracks()[0]
   if (finalAudio) attachRmsMeter(finalAudio, 'FINAL')
   if (!finalAudio) log('WARNING: final stream has NO audio track — recording will be silent')
+  if (!finalAudio) captureMessage('final stream has no audio track', 'warning', { operation: 'prepareAndRecord' })
 
   log('final stream tracks -> video:', mixedStream.getVideoTracks().length, 'audio:', mixedStream.getAudioTracks().length)
 
@@ -368,6 +391,7 @@ async function prepareAndRecord(baseStream: MediaStream): Promise<void> {
     mediaRecorder!.onerror = (e: any) => {
       clearTimeout(startTimeout)
       log('MediaRecorder error', e)
+      captureException(e, { operation: 'MediaRecorder.onerror' })
       try { mixedStream.getTracks().forEach(t => t.stop()) } catch {}
       cleanupRecordingResources()
       mediaRecorder = null
@@ -397,6 +421,7 @@ async function prepareAndRecord(baseStream: MediaStream): Promise<void> {
         getPort().postMessage({ type: 'OFFSCREEN_SAVE', filename, blobUrl })
       } catch (e) {
         log('Finalize/Save failed', e)
+        captureException(e, { operation: 'finalizeRecording' })
       } finally {
         cleanupRecordingResources()
         mediaRecorder = null
@@ -418,14 +443,15 @@ async function prepareAndRecord(baseStream: MediaStream): Promise<void> {
   await started
 }
 
-async function startRecordingFromStreamId(streamId: string): Promise<void> {
+async function startRecordingFromStreamId(streamId: string, micPreferences: MicPreferences): Promise<void> {
   if (capturing) { log('Already recording; ignoring start'); return }
   cleanupRecordingResources()
   try {
     const baseStream = await captureWithStreamId(streamId)
-    await prepareAndRecord(baseStream)
+    await prepareAndRecord(baseStream, micPreferences)
   } catch (e) {
     cleanupRecordingResources()
+    captureException(e, { operation: 'startRecordingFromStreamId' })
     mediaRecorder = null
     chunks = []
     capturing = false
@@ -439,7 +465,7 @@ function stopRecording() {
     console.warn('[offscreen] Stop called but not recording')
     throw new Error('Not currently recording')
   }
-  try { mediaRecorder.stop() } catch (e) { console.error('[offscreen] Stop error', e); throw e }
+  try { mediaRecorder.stop() } catch (e) { console.error('[offscreen] Stop error', e); captureException(e, { operation: 'stopRecording' }); throw e }
 }
 
 // RPC przez port.
@@ -449,11 +475,16 @@ rpcPort.onMessage.addListener(async (msg: any) => {
     if (msg?.type === 'OFFSCREEN_START') {
       const streamId = msg.streamId as string | undefined
       if (!streamId) return respond(msg, { ok: false, error: 'Missing streamId' })
+      const micPreferences = (msg.micPreferences || {
+        preferredMicDeviceId: null,
+        preferredMicLabel: null
+      }) as MicPreferences
       try {
         // Poczekaj, aż nagrywanie faktycznie wystartuje.
-        await startRecordingFromStreamId(streamId)
+        await startRecordingFromStreamId(streamId, micPreferences)
         return respond(msg, { ok: true })
       } catch (e: any) {
+        captureException(e, { operation: 'OFFSCREEN_START' })
         return respond(msg, { ok: false, error: `${e?.name || 'Error'}: ${e?.message || e}` })
       }
     }
@@ -487,6 +518,7 @@ rpcPort.onMessage.addListener(async (msg: any) => {
     }
   } catch (e) {
     console.error('[offscreen] error', e)
+    captureException(e, { operation: 'rpcPort.onMessage' })
     respond(msg, { ok: false, error: String(e) })
   }
 })

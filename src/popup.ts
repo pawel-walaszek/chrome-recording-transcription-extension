@@ -1,6 +1,9 @@
 // src/popup.ts
 
+import { captureException, initDiagnostics } from './diagnostics'
 import { getMicPreferences, MIC_DEVICE_ID_KEY, MIC_LABEL_KEY } from './micPreferences'
+
+initDiagnostics('popup')
 
 const micBtn = document.getElementById('enable-mic') as HTMLButtonElement | null;
 const micStatusEl = document.getElementById('mic-status') as HTMLDivElement | null;
@@ -106,6 +109,7 @@ micBtn?.addEventListener('click', async () => {
     await openMicSetupTab();
   } catch (e) {
     console.error('[popup] mic enable flow error', e);
+    captureException(e, { operation: 'openMicSetupTab' });
     alert('Could not open the microphone setup page. Please try again.');
   }
 });
@@ -148,6 +152,7 @@ startBtn?.addEventListener('click', async () => {
     toast('Recording started');
   } catch (e: any) {
     console.error('[popup] START_RECORDING error', e);
+    captureException(e, { operation: 'START_RECORDING' });
     setUI(false);
     alert(`Failed to start recording:\n${e?.message || e}`);
   } finally {
@@ -168,6 +173,7 @@ stopBtn?.addEventListener('click', async () => {
     toast('Stopping… finalizing…');
   } catch (e: any) {
     console.error('[popup] STOP_RECORDING error', e);
+    captureException(e, { operation: 'STOP_RECORDING' });
     alert(`Failed to stop recording:\n${e?.message || e}`);
     setUI(false);
   } finally {

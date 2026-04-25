@@ -1,6 +1,9 @@
 // src/micsetup.ts
 
+import { captureException, initDiagnostics } from './diagnostics'
 import { clearMicPreferences, getMicPreferences, setMicPreferences } from './micPreferences'
+
+initDiagnostics('micsetup')
 
 const DEFAULT_MIC_VALUE = '__default__'
 
@@ -28,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return true
     } catch (error) {
       console.error('[micsetup] getUserMedia error:', error)
+      captureException(error, { operation: 'requestPermission' })
       setStatus(`Microphone blocked: ${describeError(error)}. Check Chrome and OS settings.`)
       return false
     }
@@ -74,6 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await renderDevices()
     } catch (error) {
       console.error('[micsetup] enumerateDevices error:', error)
+      captureException(error, { operation: 'loadDevices' })
       setStatus(`Could not list microphones: ${describeError(error)}`)
     }
   }
@@ -81,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshBtn.addEventListener('click', () => {
     loadDevices().catch((error) => {
       console.error('[micsetup] refresh error:', error)
+      captureException(error, { operation: 'refreshDevices' })
       setStatus(`Could not refresh microphones: ${describeError(error)}`)
     })
   })
@@ -102,12 +108,14 @@ document.addEventListener('DOMContentLoaded', () => {
       setStatus(`Saved: ${selectedOption?.textContent || 'Selected microphone'}.`)
     } catch (error) {
       console.error('[micsetup] save error:', error)
+      captureException(error, { operation: 'saveMicrophone' })
       setStatus(`Could not save microphone: ${describeError(error)}`)
     }
   })
 
   loadDevices().catch((error) => {
     console.error('[micsetup] initial load error:', error)
+    captureException(error, { operation: 'initialLoad' })
     setStatus(`Could not load microphones: ${describeError(error)}`)
   })
 })

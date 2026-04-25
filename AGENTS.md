@@ -32,6 +32,7 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Po zmianach w kodzie lub konfiguracji uruchom `make check`.
 - Dla zmian dotykajacych przeplywow przegladarkowych wykonaj tez smoke test z `docs/runbooks/002-smoke-test-po-zmianach.md`.
 - Jesli nie da sie uruchomic walidacji, podaj konkretny powod i zakres ryzyka.
+- Jesli poprawiasz blad zgloszony w Sentry, po wdrozeniu poprawki zamknij odpowiednie issue w Sentry jako rozwiazane.
 
 ## Dokumentacja
 

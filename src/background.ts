@@ -1,5 +1,10 @@
 // src/background.ts
 
+import { captureException, captureMessage, initDiagnostics } from './diagnostics'
+import { clearMicPreferences, getMicPreferences, type MicPreferences } from './micPreferences'
+
+initDiagnostics('background')
+
 let offscreenPort: chrome.runtime.Port | null = null
 let offscreenReady = false
 let lastKnownRecording = false
@@ -8,6 +13,19 @@ const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 function bglog(...a: any[]) { console.log('[background]', ...a) }
 function setBadge(recording: boolean) {
   chrome.action.setBadgeText({ text: recording ? 'REC' : '' }).catch?.(() => {})
+}
+
+async function getMicPreferencesForOffscreen(): Promise<MicPreferences> {
+  try {
+    return await getMicPreferences()
+  } catch (e) {
+    bglog('getMicPreferences failed; continuing without saved microphone preference', e)
+    captureException(e, { operation: 'getMicPreferencesForOffscreen' })
+    return {
+      preferredMicDeviceId: null,
+      preferredMicLabel: null
+    }
+  }
 }
 
 async function hasOffscreenContext(): Promise<boolean> {
@@ -67,6 +85,7 @@ async function resetOffscreen(): Promise<void> {
     }
   } catch (e) {
     bglog('Offscreen reset failed', e)
+    captureException(e, { operation: 'resetOffscreen' })
   }
 }
 
@@ -99,6 +118,10 @@ chrome.runtime.onConnect.addListener((port) => {
         chrome.downloads.download({ url: msg.blobUrl, filename, saveAs: true }, () => {
           if (chrome.runtime.lastError) {
             bglog('downloads.download error:', chrome.runtime.lastError.message)
+            captureMessage('downloads.download error', 'error', {
+              operation: 'OFFSCREEN_SAVE',
+              error: chrome.runtime.lastError.message
+            })
           } else {
             chrome.runtime.sendMessage({ type: 'RECORDING_SAVED', filename }).catch(() => {})
           }
@@ -182,7 +205,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           bglog('ensureOffscreen() completed')
 
           const streamId = await getStreamIdForTab(tabId)
-          const r = await postToOffscreen({ type: 'OFFSCREEN_START', streamId })
+          const micPreferences = await getMicPreferencesForOffscreen()
+          const r = await postToOffscreen({ type: 'OFFSCREEN_START', streamId, micPreferences })
           bglog('postToOffscreen(OFFSCREEN_START) response', r)
           return r
         }
@@ -216,6 +240,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
       } catch (e: any) {
         bglog('OFFSCREEN_START failed', e)
+        captureException(e, { operation: 'START_RECORDING' })
         await resetOffscreen()
         sendResponse({ ok: false, error: `OFFSCREEN_START failed: ${e?.message || e}` })
       }
@@ -231,6 +256,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
         sendResponse({ ok: true })
       } catch (e: any) {
+        captureException(e, { operation: 'STOP_RECORDING' })
         sendResponse({ ok: false, error: `STOP failed: ${e?.message || e}` })
       }
       return
@@ -240,8 +266,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sendResponse({ recording: lastKnownRecording })
       return
     }
+
+    if (msg?.type === 'CLEAR_MIC_PREFERENCES') {
+      try {
+        await clearMicPreferences()
+        sendResponse({ ok: true })
+      } catch (e: any) {
+        captureException(e, { operation: 'CLEAR_MIC_PREFERENCES' })
+        sendResponse({ ok: false, error: e?.message || String(e) })
+      }
+      return
+    }
   })().catch((err) => {
     console.error('[background] top-level error', err)
+    captureException(err, { operation: 'runtime.onMessage' })
     sendResponse({ ok: false, error: String(err) })
   })
 

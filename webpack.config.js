@@ -1,6 +1,8 @@
 const path = require('path')
+const webpack = require('webpack')
 const CopyWebpackPlugin = require('copy-webpack-plugin')
 const { CleanWebpackPlugin } = require('clean-webpack-plugin')
+const manifest = require('./manifest.json')
 
 module.exports = {
   mode: 'production',
@@ -26,6 +28,11 @@ module.exports = {
     ]
   },
   plugins: [
+    new webpack.DefinePlugin({
+      __SENTRY_DSN__: JSON.stringify(process.env.SENTRY_DSN || ''),
+      __SENTRY_ENVIRONMENT__: JSON.stringify(process.env.SENTRY_ENVIRONMENT || 'chrome-extension-dev'),
+      __EXTENSION_VERSION__: JSON.stringify(manifest.version)
+    }),
     new CleanWebpackPlugin(),
     new CopyWebpackPlugin({
       patterns: [

@@ -162,6 +162,18 @@ const WANT_MIC_MIX = true
 `make clean` - usuwa wygenerowany `dist/`
 `make deps-clean` - usuwa wolumeny zależności/cache Docker Compose
 
+### Sentry
+
+Build przez `make` próbuje odczytać publiczny DSN Sentry z `SENTRY_DSN` albo pobrać go przez API na podstawie `SENTRY_AUTH_TOKEN`, `SENTRY_ORG_SLUG`, `SENTRY_PROJECT_SLUG` i `SENTRY_BASE_URL` z `~/.codex/.secrets`. Jeśli DSN nie jest dostępny, integracja Sentry pozostaje wyłączona.
+
+Domyślne środowisko Sentry dla tej wtyczki to `chrome-extension-dev`. Można je zmienić przed buildem:
+
+```
+SENTRY_ENVIRONMENT=chrome-extension-local make build
+```
+
+Do Sentry trafiają błędy techniczne z popupu, service workera, offscreen documentu i strony ustawień mikrofonu. Nie wysyłamy nagrań, danych audio ani treści spotkań.
+
 ## Wewnętrzne skrypty npm
 
 `npm run build` - pojedynczy build produkcyjny do `dist/`
@@ -178,6 +190,7 @@ Skrypty npm są szczegółem implementacyjnym używanym przez kontener buildowy 
 2. webpack 5 + ts-loader
 3. copy-webpack-plugin, clean-webpack-plugin
 4. @types/chrome, @types/node
+5. @sentry/browser dla opcjonalnej diagnostyki błędów
 
 Są już zadeklarowane w `package.json`:
 ```
@@ -198,6 +211,7 @@ Są już zadeklarowane w `package.json`:
 3. `tabCapture` / `desktopCapture` - przechwytywanie wideo i audio z bieżącej karty.
 4. `offscreen` - tworzenie dokumentu offscreen dla logiki nagrywania działającej w tle.
 5. `storage` - zapis tymczasowych wskazówek o stanie nagrywania dla synchronizacji UI.
+6. `host_permissions` dla `https://sentry.eengine.pl/*` - wysyłka zdarzeń diagnostycznych do Sentry, gdy build zawiera DSN.
 
 ## Rozwiązywanie problemów / FAQ
 
