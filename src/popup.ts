@@ -1,8 +1,14 @@
 // src/popup.ts
 
 const micBtn = document.getElementById('enable-mic') as HTMLButtonElement | null;
+const micStatusEl = document.getElementById('mic-status') as HTMLDivElement | null;
 const startBtn = document.getElementById('start-rec') as HTMLButtonElement | null;
 const stopBtn = document.getElementById('stop-rec') as HTMLButtonElement | null;
+
+interface PopupMicPreferences {
+  preferredMicDeviceId?: string | null
+  preferredMicLabel?: string | null
+}
 
 function setUI(recording: boolean) {
   if (!startBtn || !stopBtn) return;
@@ -19,30 +25,63 @@ async function openMicSetupTab() {
   await chrome.tabs.create({ url: chrome.runtime.getURL('micsetup.html') });
 }
 
+function getPopupMicPreferences(): Promise<PopupMicPreferences> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['preferredMicDeviceId', 'preferredMicLabel'], (items) => {
+      resolve(items as PopupMicPreferences)
+    })
+  })
+}
+
+async function refreshMicStatus() {
+  if (!micStatusEl) return
+  try {
+    const prefs = await getPopupMicPreferences()
+    micStatusEl.textContent = `Mic: ${prefs.preferredMicDeviceId ? (prefs.preferredMicLabel || 'Selected microphone') : 'Default microphone'}`
+  } catch {
+    micStatusEl.textContent = ''
+  }
+}
+
 // Odzwierciedla stan uprawnienia mikrofonu w etykiecie przycisku.
 async function refreshMicButton() {
-  if (!micBtn || !('permissions' in navigator)) return;
+  if (!micBtn) return;
+  micBtn.disabled = false;
+  if (!('permissions' in navigator)) {
+    micBtn.textContent = 'Microphone Settings';
+    micBtn.title = 'Choose which microphone should be included in recordings';
+    await refreshMicStatus();
+    return;
+  }
   try {
     // @ts-ignore - Chrome obsługuje tę nazwę uprawnienia.
     const status = await (navigator as any).permissions.query({ name: 'microphone' });
     const set = () => {
       micBtn.textContent =
         status.state === 'granted'
-          ? 'Microphone Enabled ✓'
+          ? 'Microphone Settings'
           : status.state === 'denied'
-          ? 'Microphone Blocked'
+          ? 'Microphone Settings'
           : 'Enable Microphone';
-      micBtn.disabled = status.state === 'granted';
+      micBtn.disabled = false;
       micBtn.title =
         status.state === 'granted'
-          ? 'Microphone is already enabled for this extension'
+          ? 'Choose which microphone should be included in recordings'
+          : status.state === 'denied'
+          ? 'Open microphone settings to review blocked access'
           : 'Grant microphone permission so your voice is included in recordings';
     };
     set();
-    status.onchange = set;
+    status.onchange = () => {
+      set();
+      refreshMicStatus().catch(() => {});
+    };
   } catch {
     // Permissions API może nie być dostępne.
+    micBtn.textContent = 'Microphone Settings';
+    micBtn.title = 'Choose which microphone should be included in recordings';
   }
+  await refreshMicStatus();
 }
 
 // Inicjalizacja: odczyt bieżącego stanu nagrywania i aktualizacja UI.
@@ -54,6 +93,7 @@ void (async () => {
     setUI(false);
   }
   refreshMicButton().catch(() => {});
+  refreshMicStatus().catch(() => {});
 })();
 
 // Reakcja na komunikaty stanu z tła/offscreen.
@@ -65,31 +105,17 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// Wstępne nadanie uprawnienia mikrofonu.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+  if (changes.preferredMicDeviceId || changes.preferredMicLabel) {
+    refreshMicStatus().catch(() => {});
+  }
+});
+
+// Otwiera konfigurację mikrofonu.
 micBtn?.addEventListener('click', async () => {
   try {
-    if ('permissions' in navigator) {
-      // @ts-ignore
-      const p = await (navigator as any).permissions.query({ name: 'microphone' });
-      if (p.state === 'granted') {
-        alert('Microphone is already enabled for this extension.');
-        await refreshMicButton();
-        return;
-      }
-      if (p.state === 'denied') {
-        await openMicSetupTab();
-        return;
-      }
-    }
-    // Próba inline.
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-      s.getTracks().forEach(t => t.stop());
-      alert('Microphone enabled for the extension.');
-      await refreshMicButton();
-    } catch {
-      await openMicSetupTab();
-    }
+    await openMicSetupTab();
   } catch (e) {
     console.error('[popup] mic enable flow error', e);
     alert('Could not open the microphone setup page. Please try again.');

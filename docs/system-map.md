@@ -11,10 +11,10 @@ Rozszerzenie nagrywa bieżącą kartę do lokalnego pliku `.webm`. Nagrywanie od
 | Komponent | Ścieżka | Rola |
 | --- | --- | --- |
 | Manifest | `manifest.json` | Deklaruje metadane MV3, uprawnienia, worker tła i dostępne zasoby. |
-| Popup | `popup.html`, `src/popup.ts` | Kontrolki użytkownika do nadawania uprawnień mikrofonu oraz startu/stopu nagrywania. |
+| Popup | `popup.html`, `src/popup.ts` | Kontrolki użytkownika do otwierania ustawień mikrofonu oraz startu/stopu nagrywania. |
 | Service worker tła | `src/background.ts` | Koordynuje przechwytywanie karty, cykl życia dokumentu offscreen, stan nagrywania, znacznik i pobieranie plików. |
 | Nagrywarka offscreen | `offscreen.html`, `src/offscreen.ts` | Przechwytuje media z karty, opcjonalnie miksuje audio mikrofonu, nagrywa przez `MediaRecorder` i zwraca URL blobu do pobrania. |
-| Strona konfiguracji mikrofonu | `micsetup.html`, `src/micsetup.ts` | Widoczna strona rozszerzenia używana do nadania uprawnienia mikrofonu, gdy prośba o dostęp w popupie jest zawodna. |
+| Strona konfiguracji mikrofonu | `micsetup.html`, `src/micsetup.ts` | Widoczna strona rozszerzenia używana do nadania uprawnienia mikrofonu, wyboru urządzenia i zapisu konfiguracji w `chrome.storage.local`. |
 | Build kontenerowy | `compose.yml`, `Makefile` | Domyślny lokalny punkt wejścia do builda i walidacji. Uruchamia npm w Docker Compose bez lokalnego Node.js. |
 | Build webpacka | `webpack.config.js`, `tsconfig.json` | Kompiluje entrypointy TypeScript i kopiuje statyczne pliki rozszerzenia do `dist/`. |
 
@@ -22,7 +22,8 @@ Rozszerzenie nagrywa bieżącą kartę do lokalnego pliku `.webm`. Nagrywanie od
 
 1. Pliki wynikowe są zapisywane lokalnie przez Chrome Downloads API.
 2. Rozszerzenie nie wymaga backendu, bazy danych ani przechowywania w chmurze.
-3. `dist/` jest wygenerowanym wynikiem builda i nie powinien być edytowany ręcznie.
+3. Wybór mikrofonu jest zapisywany lokalnie w `chrome.storage.local`.
+4. `dist/` jest wygenerowanym wynikiem builda i nie powinien być edytowany ręcznie.
 
 ## Lokalna walidacja
 

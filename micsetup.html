@@ -2,12 +2,17 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Enable Microphone</title>
+  <title>Microphone Settings</title>
 </head>
 <body>
-  <h3>Enable microphone for the extension</h3>
-  <p>Click the button below and Allow the microphone when prompted.</p>
-  <button id="enable">Enable Microphone</button>
+  <h3>Microphone Settings</h3>
+  <p>Choose which microphone should be mixed into recordings.</p>
+  <button id="enable">Enable / Refresh Microphones</button>
+  <p>
+    <label for="mic-select">Microphone</label><br>
+    <select id="mic-select" disabled></select>
+  </p>
+  <button id="save-mic" disabled>Save Microphone</button>
   <p id="status"></p>
   <script src="micsetup.js"></script>
 </body>

@@ -7,6 +7,11 @@
 const WANT_MIC_MIX = true
 const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 
+interface OffscreenMicPreferences {
+  preferredMicDeviceId?: string | null
+  preferredMicLabel?: string | null
+}
+
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
 })
@@ -108,6 +113,36 @@ function inferSuffixFromActiveTabUrl(url?: string | null): string {
   } catch { return 'google-meet' }
 }
 
+function getOffscreenMicPreferences(): Promise<OffscreenMicPreferences> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['preferredMicDeviceId', 'preferredMicLabel'], (items) => {
+      resolve(items as OffscreenMicPreferences)
+    })
+  })
+}
+
+function clearPreferredMicDevice(): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(['preferredMicDeviceId', 'preferredMicLabel'], () => {
+      chrome.storage.local.set({ preferredMicUpdatedAt: Date.now() }, () => resolve())
+    })
+  })
+}
+
+function makeMicAudioConstraints(deviceId?: string | null): MediaTrackConstraints {
+  return {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true
+  }
+}
+
+function isMissingSelectedMicError(error: unknown): boolean {
+  return error instanceof DOMException &&
+    (error.name === 'OverconstrainedError' || error.name === 'NotFoundError')
+}
+
 // Prosty jednokanałowy miernik RMS do debugowania.
 function attachRmsMeter(track: MediaStreamTrack, label: 'RAW' | 'FINAL') {
   try {
@@ -142,15 +177,33 @@ function attachRmsMeter(track: MediaStreamTrack, label: 'RAW' | 'FINAL') {
 // Nagrywanie i miksowanie.
 async function maybeGetMicStream(): Promise<MediaStream | null> {
   if (!WANT_MIC_MIX) return null
+  const prefs = await getOffscreenMicPreferences()
+
+  if (prefs.preferredMicDeviceId) {
+    try {
+      const mic = await withStreamTimeout(
+        navigator.mediaDevices.getUserMedia({
+          audio: makeMicAudioConstraints(prefs.preferredMicDeviceId)
+        }),
+        'selected mic getUserMedia'
+      )
+      const t = mic.getAudioTracks()[0]
+      log('selected mic stream acquired:', prefs.preferredMicLabel || prefs.preferredMicDeviceId, 'track:', !!t, 'muted:', t?.muted, 'enabled:', t?.enabled)
+      return mic
+    } catch (e) {
+      log('selected mic getUserMedia failed; falling back to default mic:', prefs.preferredMicLabel || prefs.preferredMicDeviceId, e)
+      if (isMissingSelectedMicError(e)) {
+        log('selected mic is no longer available; clearing saved microphone preference')
+        await clearPreferredMicDevice()
+      }
+    }
+  }
+
   try {
     // Działa tylko wtedy, gdy źródło rozszerzenia ma już nadane uprawnienie mikrofonu.
     const mic = await withStreamTimeout(
       navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
+        audio: makeMicAudioConstraints()
       }),
       'mic getUserMedia'
     )

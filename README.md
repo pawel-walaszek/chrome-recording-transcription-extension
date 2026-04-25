@@ -70,7 +70,7 @@ Przy zmianach widocznych w przeglądarce wykonaj też test dymny z [`docs/runboo
 
 
 Otwórz Google Meet i kliknij ikonę rozszerzenia:
-1. **Enable Microphone** - nadaje uprawnienie mikrofonu, żeby Twój głos mógł zostać domiksowany do nagrania.
+1. **Enable Microphone / Microphone Settings** - otwiera konfigurację mikrofonu i pozwala wybrać urządzenie wejściowe.
 2. **Start Recording / Stop & Download** - tworzy plik `.webm` przez Downloads API.
 
 ## Instalacja i budowanie
@@ -111,10 +111,10 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 
 3. W popupie:
  
-   a) **Enable Microphone** - włącz przed kliknięciem `Start Recording`, żeby poza dźwiękiem innych uczestników nagrać też swój głos.
-   b) Prośba o dostęp do mikrofonu może nie pojawiać się niezawodnie w popupie. W takim przypadku przycisk otwiera dedykowaną stronę `Enable Microphone` (`micsetup.html`), gdzie można kliknąć `Enable` i udzielić dostępu do mikrofonu.
-   c) Po udzieleniu dostępu etykieta zmienia się na `Microphone Enabled`.
-   d) **Start Recording**: rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest włączony i miksowanie jest aktywne (domyślnie), mikrofon zostanie domiksowany.
+   a) **Enable Microphone** - przy pierwszym użyciu otwiera stronę konfiguracji i prosi o dostęp do mikrofonu.
+   b) **Microphone Settings** - po nadaniu uprawnienia pozostaje aktywne i pozwala zmienić mikrofon.
+   c) Na stronie konfiguracji wybierz `Default microphone` albo konkretne urządzenie wejściowe i kliknij `Save Microphone`.
+   d) **Start Recording**: rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest dostępny i miksowanie jest aktywne (domyślnie), mikrofon zostanie domiksowany.
    e) **Stop & Download**: finalizuje i pobiera `google-meet-recording-<meeting-id>-<timestamp>.webm`.
 
 > Podczas nagrywania rozszerzenie pokazuje znacznik `REC`. Wszystkie pliki są zapisywane lokalnie przez Chrome Downloads API.
@@ -138,7 +138,7 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 │  ├─ background.ts     # service worker MV3: tworzy offscreen i koordynuje strumienie
 │  ├─ offscreen.ts      # uruchamia nagrywarkę, miksuje mikrofon z kartą i zapisuje blob
 │  ├─ popup.ts          # obsługa popupu: mikrofon, start/stop
-│  └─ micsetup.ts       # widoczna strona do nadania uprawnienia mikrofonu
+│  └─ micsetup.ts       # widoczna strona do nadania uprawnienia i wyboru mikrofonu
 └─ dist/                # wygenerowany wynik builda
 ```
 
@@ -208,8 +208,15 @@ Odpowiedź:
 
 Pytanie: W nagraniu nie ma audio z mikrofonu.
 Odpowiedź:
-1. Kliknij `Enable Microphone` w popupie. Jeśli prośba inline nie zadziała, otworzy się karta konfiguracji mikrofonu; kliknij tam `Enable` i zezwól na dostęp.
+1. Kliknij `Enable Microphone` albo `Microphone Settings` w popupie, wybierz mikrofon i kliknij `Save Microphone`.
 2. Sprawdź też uprawnienia mikrofonu dla Chrome w systemie: `System Settings` -> `Privacy` -> `Microphone`.
+
+Pytanie: Jak zmienić mikrofon, jeśli Chrome używa złego urządzenia?
+Odpowiedź:
+1. Kliknij `Microphone Settings` w popupie.
+2. Wybierz `Default microphone` albo konkretne urządzenie z listy.
+3. Kliknij `Save Microphone`.
+4. Przy następnym nagraniu rozszerzenie użyje zapisanego wyboru; jeśli urządzenie zniknie, wróci do mikrofonu domyślnego albo nagrywania bez mikrofonu.
 
 Pytanie: Dlaczego nagranie jest ciche albo bez dźwięku?
 Odpowiedź:
