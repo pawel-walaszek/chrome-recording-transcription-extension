@@ -12,6 +12,7 @@ module.exports = {
     background: './src/background.ts',
     offscreen: './src/offscreen.ts',
     micsetup: './src/micsetup.ts',
+    meetWatcher: './src/meetWatcher.ts',
   },
   output: {
     path: path.resolve(__dirname, 'dist'),

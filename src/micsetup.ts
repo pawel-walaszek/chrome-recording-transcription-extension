@@ -6,6 +6,7 @@ import { clearMicPreferences, getMicPreferences, setMicPreferences } from './mic
 initDiagnostics('micsetup')
 
 const DEFAULT_MIC_VALUE = '__default__'
+const PSEUDO_DEVICE_IDS = new Set(['default', 'communications'])
 
 function describeError(error: unknown): string {
   if (error instanceof DOMException) return `${error.name}: ${error.message}`
@@ -42,32 +43,37 @@ document.addEventListener('DOMContentLoaded', () => {
     saveBtn.disabled = true
     selectEl.replaceChildren()
 
-    const prefs = await getMicPreferences()
-    const devices = await navigator.mediaDevices.enumerateDevices()
-    const audioInputs = devices.filter(device => device.kind === 'audioinput')
+    try {
+      const prefs = await getMicPreferences()
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const audioInputs = devices.filter(device =>
+        device.kind === 'audioinput' && !PSEUDO_DEVICE_IDS.has(device.deviceId)
+      )
 
-    const defaultOption = new Option('Default microphone', DEFAULT_MIC_VALUE)
-    selectEl.append(defaultOption)
+      const defaultOption = new Option('Default microphone', DEFAULT_MIC_VALUE)
+      selectEl.append(defaultOption)
 
-    audioInputs.forEach((device, index) => {
-      const label = device.label || `Microphone ${index + 1}`
-      selectEl.append(new Option(label, device.deviceId))
-    })
+      audioInputs.forEach((device, index) => {
+        const label = device.label || `Microphone ${index + 1}`
+        selectEl.append(new Option(label, device.deviceId))
+      })
 
-    if (prefs.preferredMicDeviceId && audioInputs.some(device => device.deviceId === prefs.preferredMicDeviceId)) {
-      selectEl.value = prefs.preferredMicDeviceId
-    } else {
-      selectEl.value = DEFAULT_MIC_VALUE
-      if (prefs.preferredMicDeviceId) {
-        await clearMicPreferences()
+      if (prefs.preferredMicDeviceId && audioInputs.some(device => device.deviceId === prefs.preferredMicDeviceId)) {
+        selectEl.value = prefs.preferredMicDeviceId
+      } else {
+        selectEl.value = DEFAULT_MIC_VALUE
+        if (prefs.preferredMicDeviceId) {
+          await clearMicPreferences()
+        }
       }
-    }
 
-    selectEl.disabled = false
-    saveBtn.disabled = false
-    setStatus(audioInputs.length
-      ? 'Choose a microphone and save.'
-      : 'No microphone devices found. Default microphone will be used when available.')
+      setStatus(audioInputs.length
+        ? 'Choose a microphone and save.'
+        : 'No microphone devices found. Default microphone will be used when available.')
+    } finally {
+      selectEl.disabled = false
+      saveBtn.disabled = false
+    }
   }
 
   const loadDevices = async () => {
@@ -87,6 +93,14 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDevices().catch((error) => {
       console.error('[micsetup] refresh error:', error)
       captureException(error, { operation: 'refreshDevices' })
+      setStatus(`Could not refresh microphones: ${describeError(error)}`)
+    })
+  })
+
+  navigator.mediaDevices.addEventListener?.('devicechange', () => {
+    renderDevices().catch((error) => {
+      console.error('[micsetup] devicechange refresh error:', error)
+      captureException(error, { operation: 'devicechangeRefresh' })
       setStatus(`Could not refresh microphones: ${describeError(error)}`)
     })
   })

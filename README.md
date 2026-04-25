@@ -117,7 +117,7 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
    d) **Start Recording**: rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest dostępny i miksowanie jest aktywne (domyślnie), mikrofon zostanie domiksowany.
    e) **Stop & Download**: finalizuje i pobiera `google-meet-recording-<meeting-id>-<timestamp>.webm`.
 
-> Podczas nagrywania rozszerzenie pokazuje znacznik `REC`. Wszystkie pliki są zapisywane lokalnie przez Chrome Downloads API.
+> Na aktywnym spotkaniu Google Meet rozszerzenie pokazuje znacznik `RDY`, a podczas nagrywania `REC`. Jeśli nagranie zostało rozpoczęte na karcie Meet, wyjście ze spotkania automatycznie zatrzymuje nagrywanie i pobiera plik. Wszystkie pliki są zapisywane lokalnie przez Chrome Downloads API.
 
 ## Struktura projektu
 ```
@@ -212,6 +212,7 @@ Są już zadeklarowane w `package.json`:
 4. `offscreen` - tworzenie dokumentu offscreen dla logiki nagrywania działającej w tle.
 5. `storage` - zapis tymczasowych wskazówek o stanie nagrywania dla synchronizacji UI.
 6. `host_permissions` dla `https://sentry.eengine.pl/*` - wysyłka zdarzeń diagnostycznych do Sentry, gdy build zawiera DSN.
+7. `host_permissions` dla `https://meet.google.com/*` - content script wykrywa wejście i wyjście ze spotkania, żeby pokazać stan `RDY` i automatycznie zatrzymać nagrywanie po opuszczeniu spotkania.
 
 ## Rozwiązywanie problemów / FAQ
 

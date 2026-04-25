@@ -30,3 +30,4 @@ Szybko potwierdzic, ze build oraz najwazniejsze sciezki rozszerzenia dzialaja po
 - `dist/` laduje sie jako rozszerzenie bez bledow manifestu.
 - Strona konfiguracji mikrofonu pokazuje `Default microphone` i pozwala zapisac wybor.
 - Nagrywanie startuje, zatrzymuje sie i pobiera `.webm`, jesli dotknieto kodu recording/offscreen/permissions.
+- Na aktywnym spotkaniu Meet znacznik rozszerzenia pokazuje `RDY`, po starcie `REC`, a wyjscie ze spotkania zatrzymuje nagrywanie i pobiera `.webm`.

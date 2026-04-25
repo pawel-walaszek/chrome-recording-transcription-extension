@@ -8,11 +8,20 @@ initDiagnostics('background')
 let offscreenPort: chrome.runtime.Port | null = null
 let offscreenReady = false
 let lastKnownRecording = false
+let currentRecordingTabId: number | null = null
+let autoStopMeetTabId: number | null = null
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 function bglog(...a: any[]) { console.log('[background]', ...a) }
-function setBadge(recording: boolean) {
-  chrome.action.setBadgeText({ text: recording ? 'REC' : '' }).catch?.(() => {})
+function setBadge(recording: boolean, tabId?: number | null) {
+  const details: chrome.action.BadgeTextDetails = { text: recording ? 'REC' : '' }
+  if (typeof tabId === 'number') details.tabId = tabId
+  chrome.action.setBadgeText(details).catch?.(() => {})
+}
+
+function setMeetReadyBadge(tabId: number, ready: boolean) {
+  if (lastKnownRecording && currentRecordingTabId === tabId) return
+  chrome.action.setBadgeText({ tabId, text: ready ? 'RDY' : '' }).catch?.(() => {})
 }
 
 async function getMicPreferencesForOffscreen(): Promise<MicPreferences> {
@@ -76,6 +85,8 @@ async function resetOffscreen(): Promise<void> {
   offscreenPort = null
   offscreenReady = false
   lastKnownRecording = false
+  currentRecordingTabId = null
+  autoStopMeetTabId = null
   setBadge(false)
 
   try {
@@ -103,8 +114,12 @@ chrome.runtime.onConnect.addListener((port) => {
 
     if (msg?.type === 'RECORDING_STATE') {
       lastKnownRecording = !!msg.recording
-      setBadge(lastKnownRecording)
+      setBadge(lastKnownRecording, currentRecordingTabId)
       chrome.runtime.sendMessage({ type: 'RECORDING_STATE', recording: lastKnownRecording }).catch(() => {})
+      if (!lastKnownRecording) {
+        currentRecordingTabId = null
+        autoStopMeetTabId = null
+      }
     }
 
     if (msg?.type === 'OFFSCREEN_SAVE') {
@@ -139,6 +154,8 @@ chrome.runtime.onConnect.addListener((port) => {
     offscreenPort = null
     offscreenReady = false
     lastKnownRecording = false
+    currentRecordingTabId = null
+    autoStopMeetTabId = null
     setBadge(false)
   })
 })
@@ -192,8 +209,49 @@ function getStreamIdForTab(tabId: number): Promise<string> {
   })
 }
 
+async function stopRecording(reason: string): Promise<any> {
+  bglog('Stopping recording:', reason)
+  await ensureOffscreen()
+  let response: any = { ok: true }
+  if (offscreenPort) {
+    response = await postToOffscreen({ type: 'OFFSCREEN_STOP', reason })
+    bglog('postToOffscreen(OFFSCREEN_STOP) response', response)
+  }
+  lastKnownRecording = false
+  setBadge(false, currentRecordingTabId)
+  currentRecordingTabId = null
+  autoStopMeetTabId = null
+  return response
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
+    if (msg?.type === 'MEET_MEETING_STATE') {
+      const tabId = _sender.tab?.id
+      if (typeof tabId !== 'number') { sendResponse({ ok: false, error: 'Missing sender tab' }); return }
+
+      if (msg.inMeeting) {
+        bglog('Meet meeting detected on tab', tabId)
+        setMeetReadyBadge(tabId, true)
+      } else {
+        bglog('Meet meeting left on tab', tabId)
+        setMeetReadyBadge(tabId, false)
+        if (lastKnownRecording && autoStopMeetTabId === tabId) {
+          try {
+            await stopRecording('MEET_LEFT')
+            sendResponse({ ok: true, stopped: true })
+          } catch (e: any) {
+            captureException(e, { operation: 'MEET_AUTO_STOP' })
+            sendResponse({ ok: false, error: `AUTO_STOP failed: ${e?.message || e}` })
+          }
+          return
+        }
+      }
+
+      sendResponse({ ok: true })
+      return
+    }
+
     if (msg?.type === 'START_RECORDING') {
       const tabId: number | undefined = msg.tabId
       if (typeof tabId !== 'number') { sendResponse({ ok: false, error: 'Missing tabId' }); return }
@@ -232,9 +290,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
         if (r?.ok) {
           lastKnownRecording = true
-          setBadge(true)
-          chrome.runtime.sendMessage({ type: 'RECORDING_STATE', recording: true }).catch(() => {})
-          sendResponse({ ok: true })
+          currentRecordingTabId = tabId
+          autoStopMeetTabId = typeof msg.autoStopMeetTabId === 'number' ? msg.autoStopMeetTabId : tabId
+          setBadge(true, tabId)
+          chrome.runtime.sendMessage({ type: 'RECORDING_STATE', recording: true, warning: r.warning }).catch(() => {})
+          sendResponse({ ok: true, micIncluded: r.micIncluded, warning: r.warning })
         } else {
           sendResponse({ ok: false, error: r?.error || 'Failed to start' })
         }
@@ -249,11 +309,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
     if (msg?.type === 'STOP_RECORDING') {
       try {
-        await ensureOffscreen()
-        if (offscreenPort) {
-          const r = await postToOffscreen({ type: 'OFFSCREEN_STOP' })
-          bglog('postToOffscreen(OFFSCREEN_STOP) response', r)
-        }
+        await stopRecording('USER_STOP')
         sendResponse({ ok: true })
       } catch (e: any) {
         captureException(e, { operation: 'STOP_RECORDING' })

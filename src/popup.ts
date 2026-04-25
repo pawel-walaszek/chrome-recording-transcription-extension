@@ -150,6 +150,9 @@ startBtn?.addEventListener('click', async () => {
 
     setUI(true);
     toast('Recording started');
+    if (resp.warning === 'NO_MIC_AUDIO') {
+      alert('Recording started, but microphone audio is unavailable. The file will contain tab audio only.');
+    }
   } catch (e: any) {
     console.error('[popup] START_RECORDING error', e);
     captureException(e, { operation: 'START_RECORDING' });

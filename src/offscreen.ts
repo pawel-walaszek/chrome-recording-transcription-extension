@@ -49,6 +49,7 @@ const sleep = (ms: number) => new Promise(res => setTimeout(res, ms))
 
 let activeStreams = new Set<MediaStream>()
 let activeAudioContexts = new Set<AudioContext>()
+let activeAudioNodes = new Set<AudioNode>()
 let activeIntervals = new Set<number>()
 
 function trackStream<T extends MediaStream | null>(stream: T): T {
@@ -61,9 +62,19 @@ function trackAudioContext<T extends AudioContext>(ctx: T): T {
   return ctx
 }
 
+function trackAudioNode<T extends AudioNode>(node: T): T {
+  activeAudioNodes.add(node)
+  return node
+}
+
 function cleanupRecordingResources() {
   activeIntervals.forEach((id) => { try { clearInterval(id) } catch {} })
   activeIntervals.clear()
+
+  activeAudioNodes.forEach((node) => {
+    try { node.disconnect() } catch {}
+  })
+  activeAudioNodes.clear()
 
   activeStreams.forEach((stream) => {
     try { stream.getTracks().forEach((track) => track.stop()) } catch {}
@@ -138,13 +149,13 @@ function isMissingSelectedMicError(error: unknown): boolean {
 }
 
 // Prosty jednokanałowy miernik RMS do debugowania.
-function attachRmsMeter(track: MediaStreamTrack, label: 'RAW' | 'FINAL') {
+function attachRmsMeter(track: MediaStreamTrack, label: 'RAW' | 'MIC' | 'FINAL') {
   try {
     const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext
     const ctx = trackAudioContext(new AC())
     void ctx.resume().catch(() => {})
-    const src = ctx.createMediaStreamSource(new MediaStream([track]))
-    const analyser = ctx.createAnalyser()
+    const src = trackAudioNode(ctx.createMediaStreamSource(new MediaStream([track])))
+    const analyser = trackAudioNode(ctx.createAnalyser())
     analyser.fftSize = 256
     const buf = new Uint8Array(analyser.frequencyBinCount)
     src.connect(analyser)
@@ -234,8 +245,11 @@ function mixAudio(tabStream: MediaStream, micStream: MediaStream | null): MediaS
   const dst = ctx.createMediaStreamDestination()
 
   try {
-    const tabSource = ctx.createMediaStreamSource(new MediaStream([tabAudio]))
+    const tabSource = trackAudioNode(ctx.createMediaStreamSource(new MediaStream([tabAudio])))
     tabSource.connect(dst)
+    // Chrome tabCapture może odciąć lokalny odsłuch przechwytywanej karty.
+    // Kierujemy tylko audio karty do głośników, bez monitoringu mikrofonu.
+    tabSource.connect(ctx.destination)
   } catch (err) {
     log('tab source connect failed for mixing; using tab audio only', err)
     captureException(err, { operation: 'mixTabAudio' })
@@ -245,7 +259,7 @@ function mixAudio(tabStream: MediaStream, micStream: MediaStream | null): MediaS
   try {
     const micTrack = micStream.getAudioTracks()[0]
     if (micTrack) {
-      const micSource = ctx.createMediaStreamSource(new MediaStream([micTrack]))
+      const micSource = trackAudioNode(ctx.createMediaStreamSource(new MediaStream([micTrack])))
       micSource.connect(dst)
     }
   } catch (e) {
@@ -306,7 +320,12 @@ let mediaRecorder: MediaRecorder | null = null
 let chunks: BlobPart[] = []
 let capturing = false
 
-async function prepareAndRecord(baseStream: MediaStream, micPreferences: MicPreferences): Promise<void> {
+interface RecordingStartInfo {
+  micIncluded: boolean
+  warning?: string
+}
+
+async function prepareAndRecord(baseStream: MediaStream, micPreferences: MicPreferences): Promise<RecordingStartInfo> {
   trackStream(baseStream)
   const a = baseStream.getAudioTracks()
   const v = baseStream.getVideoTracks()
@@ -334,6 +353,15 @@ async function prepareAndRecord(baseStream: MediaStream, micPreferences: MicPref
   if (rawAudio) attachRmsMeter(rawAudio, 'RAW')
 
   const micStream = await maybeGetMicStream(micPreferences)
+  const micTrack = micStream?.getAudioTracks()[0] || null
+  if (micTrack) {
+    log('mic track ready for mixing:', 'muted:', micTrack.muted, 'enabled:', micTrack.enabled)
+    attachRmsMeter(micTrack, 'MIC')
+  } else if (WANT_MIC_MIX) {
+    captureMessage('microphone stream unavailable; recording tab audio only', 'warning', {
+      operation: 'prepareAndRecord'
+    })
+  }
   const mixedStream = mixAudio(baseStream, micStream)
 
   const finalAudio = mixedStream.getAudioTracks()[0]
@@ -349,8 +377,8 @@ async function prepareAndRecord(baseStream: MediaStream, micPreferences: MicPref
       const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext
       const ctx = trackAudioContext(new AC())
       await ctx.resume().catch(() => {})
-      const src = ctx.createMediaStreamSource(new MediaStream([rawAudio]))
-      const analyser = ctx.createAnalyser()
+      const src = trackAudioNode(ctx.createMediaStreamSource(new MediaStream([rawAudio])))
+      const analyser = trackAudioNode(ctx.createAnalyser())
       analyser.fftSize = 256
       const buf = new Uint8Array(analyser.frequencyBinCount)
       src.connect(analyser)
@@ -441,14 +469,21 @@ async function prepareAndRecord(baseStream: MediaStream, micPreferences: MicPref
   })
 
   await started
+  return {
+    micIncluded: !!micTrack,
+    warning: micTrack ? undefined : 'NO_MIC_AUDIO'
+  }
 }
 
-async function startRecordingFromStreamId(streamId: string, micPreferences: MicPreferences): Promise<void> {
-  if (capturing) { log('Already recording; ignoring start'); return }
+async function startRecordingFromStreamId(streamId: string, micPreferences: MicPreferences): Promise<RecordingStartInfo> {
+  if (capturing) {
+    log('Already recording; ignoring start')
+    return { micIncluded: true }
+  }
   cleanupRecordingResources()
   try {
     const baseStream = await captureWithStreamId(streamId)
-    await prepareAndRecord(baseStream, micPreferences)
+    return await prepareAndRecord(baseStream, micPreferences)
   } catch (e) {
     cleanupRecordingResources()
     captureException(e, { operation: 'startRecordingFromStreamId' })
@@ -481,8 +516,8 @@ rpcPort.onMessage.addListener(async (msg: any) => {
       }) as MicPreferences
       try {
         // Poczekaj, aż nagrywanie faktycznie wystartuje.
-        await startRecordingFromStreamId(streamId, micPreferences)
-        return respond(msg, { ok: true })
+        const recordingInfo = await startRecordingFromStreamId(streamId, micPreferences)
+        return respond(msg, { ok: true, ...recordingInfo })
       } catch (e: any) {
         captureException(e, { operation: 'OFFSCREEN_START' })
         return respond(msg, { ok: false, error: `${e?.name || 'Error'}: ${e?.message || e}` })
