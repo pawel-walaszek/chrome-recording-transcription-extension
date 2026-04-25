@@ -119,9 +119,17 @@ function makeMicAudioConstraints(deviceId?: string | null): MediaTrackConstraint
   }
 }
 
+function getOverconstrainedConstraint(error: DOMException): string | null {
+  const constraint = (error as DOMException & { constraint?: unknown }).constraint
+  return typeof constraint === 'string' ? constraint : null
+}
+
 function isMissingSelectedMicError(error: unknown): boolean {
-  return error instanceof DOMException &&
-    (error.name === 'OverconstrainedError' || error.name === 'NotFoundError')
+  if (!(error instanceof DOMException)) return false
+  if (error.name === 'NotFoundError') return true
+  if (error.name !== 'OverconstrainedError') return false
+
+  return getOverconstrainedConstraint(error) === 'deviceId'
 }
 
 // Prosty jednokanałowy miernik RMS do debugowania.

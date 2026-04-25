@@ -111,8 +111,8 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 
 3. W popupie:
  
-   a) **Enable Microphone** - przy pierwszym użyciu otwiera stronę konfiguracji i prosi o dostęp do mikrofonu.
-   b) **Microphone Settings** - po nadaniu uprawnienia pozostaje aktywne i pozwala zmienić mikrofon.
+   a) Jest jeden przycisk konfiguracji mikrofonu: przy pierwszym użyciu ma etykietę **Enable Microphone**, otwiera stronę konfiguracji i prosi o dostęp do mikrofonu.
+   b) Po nadaniu uprawnienia ten sam przycisk zmienia etykietę na **Microphone Settings** i pozwala później zmienić mikrofon.
    c) Na stronie konfiguracji wybierz `Default microphone` albo konkretne urządzenie wejściowe i kliknij `Save Microphone`.
    d) **Start Recording**: rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest dostępny i miksowanie jest aktywne (domyślnie), mikrofon zostanie domiksowany.
    e) **Stop & Download**: finalizuje i pobiera `google-meet-recording-<meeting-id>-<timestamp>.webm`.
