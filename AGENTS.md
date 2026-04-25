@@ -82,9 +82,11 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 
 4. Kolejne rundy
    a) Po wdrozeniu zatwierdzonych przez czlowieka poprawek zrob commit i push.
-   b) Ponow review Copilota tylko wtedy, gdy nie przekracza to ustalonego limitu rund.
-   c) Domyslny limit to 3 rundy CR - poprawki - CR.
-   d) Jesli limit zostal osiagniety, nie pros o kolejne review automatycznie; zapytaj czlowieka, co dalej.
+   b) Po odpowiedzeniu na wszystkie uwagi z danej rundy popros Copilota o ponowne review poprawek w tym samym PR.
+   c) Po ponowieniu review czekaj do 10 minut na kolejna porcje uwag Copilota.
+   d) Ponow review Copilota tylko wtedy, gdy nie przekracza to ustalonego limitu rund.
+   e) Domyslny limit to 3 rundy CR - poprawki - CR.
+   f) Jesli limit zostal osiagniety, nie pros o kolejne review automatycznie; zapytaj czlowieka, co dalej.
 
 5. Wazne zasady
    a) Nigdy nie wdrazaj sugestii Copilota w ciemno.
