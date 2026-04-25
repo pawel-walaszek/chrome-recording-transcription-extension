@@ -15,6 +15,7 @@ Rozszerzenie nagrywa bieżącą kartę do lokalnego pliku `.webm`. Nagrywanie od
 | Service worker tła | `src/background.ts` | Koordynuje przechwytywanie karty, cykl życia dokumentu offscreen, stan nagrywania, znacznik i pobieranie plików. |
 | Nagrywarka offscreen | `offscreen.html`, `src/offscreen.ts` | Przechwytuje media z karty, opcjonalnie miksuje audio mikrofonu, nagrywa przez `MediaRecorder` i zwraca URL blobu do pobrania. |
 | Strona konfiguracji mikrofonu | `micsetup.html`, `src/micsetup.ts` | Widoczna strona rozszerzenia używana do nadania uprawnienia mikrofonu, wyboru urządzenia i zapisu konfiguracji w `chrome.storage.local`. |
+| Preferencje mikrofonu | `src/micPreferences.ts` | Wspólne klucze i helpery `chrome.storage.local` dla zapisanego wyboru mikrofonu. |
 | Build kontenerowy | `compose.yml`, `Makefile` | Domyślny lokalny punkt wejścia do builda i walidacji. Uruchamia npm w Docker Compose bez lokalnego Node.js. |
 | Build webpacka | `webpack.config.js`, `tsconfig.json` | Kompiluje entrypointy TypeScript i kopiuje statyczne pliki rozszerzenia do `dist/`. |
 

@@ -72,7 +72,6 @@ Zmiana dotyczy tylko konfiguracji i użycia mikrofonu. Nie przywraca transkrypcj
 3. Format danych w `chrome.storage.local`
    a) `preferredMicDeviceId`: `string | null`
    b) `preferredMicLabel`: `string | null`
-   c) `preferredMicUpdatedAt`: `number`
 
 4. Użycie mikrofonu w offscreen
    a) `maybeGetMicStream()` odczytuje `preferredMicDeviceId` z `chrome.storage.local`.

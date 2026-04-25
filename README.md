@@ -138,6 +138,7 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 │  ├─ background.ts     # service worker MV3: tworzy offscreen i koordynuje strumienie
 │  ├─ offscreen.ts      # uruchamia nagrywarkę, miksuje mikrofon z kartą i zapisuje blob
 │  ├─ popup.ts          # obsługa popupu: mikrofon, start/stop
+│  ├─ micPreferences.ts # wspólne helpery zapisu wyboru mikrofonu
 │  └─ micsetup.ts       # widoczna strona do nadania uprawnienia i wyboru mikrofonu
 └─ dist/                # wygenerowany wynik builda
 ```

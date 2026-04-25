@@ -1,16 +1,13 @@
 // src/offscreen.ts
 
+import { clearMicPreferences, getMicPreferences } from './micPreferences'
+
 // Włączone oznacza dodanie lokalnego mikrofonu do miksu nagrania.
 // UWAGA: offscreen nie może pokazać początkowej prośby o uprawnienie mikrofonu.
 // Trzeba raz przygotować uprawnienie mikrofonu z widocznej strony
 // (popup/opcje/karta rozszerzenia) przez navigator.mediaDevices.getUserMedia({ audio: true }).
 const WANT_MIC_MIX = true
 const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
-
-interface OffscreenMicPreferences {
-  preferredMicDeviceId?: string | null
-  preferredMicLabel?: string | null
-}
 
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
@@ -113,22 +110,6 @@ function inferSuffixFromActiveTabUrl(url?: string | null): string {
   } catch { return 'google-meet' }
 }
 
-function getOffscreenMicPreferences(): Promise<OffscreenMicPreferences> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['preferredMicDeviceId', 'preferredMicLabel'], (items) => {
-      resolve(items as OffscreenMicPreferences)
-    })
-  })
-}
-
-function clearPreferredMicDevice(): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.remove(['preferredMicDeviceId', 'preferredMicLabel'], () => {
-      chrome.storage.local.set({ preferredMicUpdatedAt: Date.now() }, () => resolve())
-    })
-  })
-}
-
 function makeMicAudioConstraints(deviceId?: string | null): MediaTrackConstraints {
   return {
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
@@ -177,7 +158,7 @@ function attachRmsMeter(track: MediaStreamTrack, label: 'RAW' | 'FINAL') {
 // Nagrywanie i miksowanie.
 async function maybeGetMicStream(): Promise<MediaStream | null> {
   if (!WANT_MIC_MIX) return null
-  const prefs = await getOffscreenMicPreferences()
+  const prefs = await getMicPreferences()
 
   if (prefs.preferredMicDeviceId) {
     try {
@@ -194,7 +175,7 @@ async function maybeGetMicStream(): Promise<MediaStream | null> {
       log('selected mic getUserMedia failed; falling back to default mic:', prefs.preferredMicLabel || prefs.preferredMicDeviceId, e)
       if (isMissingSelectedMicError(e)) {
         log('selected mic is no longer available; clearing saved microphone preference')
-        await clearPreferredMicDevice()
+        await clearMicPreferences()
       }
     }
   }

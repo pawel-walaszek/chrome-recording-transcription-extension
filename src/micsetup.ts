@@ -1,30 +1,8 @@
 // src/micsetup.ts
 
+import { clearMicPreferences, getMicPreferences, setMicPreferences } from './micPreferences'
+
 const DEFAULT_MIC_VALUE = '__default__'
-
-interface MicSetupPreferences {
-  preferredMicDeviceId?: string | null
-  preferredMicLabel?: string | null
-  preferredMicUpdatedAt?: number
-}
-
-function storageGet(keys: string[]): Promise<MicSetupPreferences> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(keys, (items) => resolve(items as MicSetupPreferences))
-  })
-}
-
-function storageSet(items: MicSetupPreferences): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.set(items, () => resolve())
-  })
-}
-
-function storageRemove(keys: string[]): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.remove(keys, () => resolve())
-  })
-}
 
 function describeError(error: unknown): string {
   if (error instanceof DOMException) return `${error.name}: ${error.message}`
@@ -60,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     saveBtn.disabled = true
     selectEl.replaceChildren()
 
-    const prefs = await storageGet(['preferredMicDeviceId', 'preferredMicLabel'])
+    const prefs = await getMicPreferences()
     const devices = await navigator.mediaDevices.enumerateDevices()
     const audioInputs = devices.filter(device => device.kind === 'audioinput')
 
@@ -77,8 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       selectEl.value = DEFAULT_MIC_VALUE
       if (prefs.preferredMicDeviceId) {
-        await storageRemove(['preferredMicDeviceId', 'preferredMicLabel'])
-        await storageSet({ preferredMicUpdatedAt: Date.now() })
+        await clearMicPreferences()
       }
     }
 
@@ -112,17 +89,15 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const selectedValue = selectEl.value
       if (selectedValue === DEFAULT_MIC_VALUE) {
-        await storageRemove(['preferredMicDeviceId', 'preferredMicLabel'])
-        await storageSet({ preferredMicUpdatedAt: Date.now() })
+        await clearMicPreferences()
         setStatus('Saved: Default microphone.')
         return
       }
 
       const selectedOption = selectEl.selectedOptions[0]
-      await storageSet({
+      await setMicPreferences({
         preferredMicDeviceId: selectedValue,
-        preferredMicLabel: selectedOption?.textContent || 'Selected microphone',
-        preferredMicUpdatedAt: Date.now()
+        preferredMicLabel: selectedOption?.textContent || 'Selected microphone'
       })
       setStatus(`Saved: ${selectedOption?.textContent || 'Selected microphone'}.`)
     } catch (error) {

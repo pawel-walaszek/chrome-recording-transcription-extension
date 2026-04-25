@@ -1,14 +1,11 @@
 // src/popup.ts
 
+import { getMicPreferences, MIC_DEVICE_ID_KEY, MIC_LABEL_KEY } from './micPreferences'
+
 const micBtn = document.getElementById('enable-mic') as HTMLButtonElement | null;
 const micStatusEl = document.getElementById('mic-status') as HTMLDivElement | null;
 const startBtn = document.getElementById('start-rec') as HTMLButtonElement | null;
 const stopBtn = document.getElementById('stop-rec') as HTMLButtonElement | null;
-
-interface PopupMicPreferences {
-  preferredMicDeviceId?: string | null
-  preferredMicLabel?: string | null
-}
 
 function setUI(recording: boolean) {
   if (!startBtn || !stopBtn) return;
@@ -25,18 +22,10 @@ async function openMicSetupTab() {
   await chrome.tabs.create({ url: chrome.runtime.getURL('micsetup.html') });
 }
 
-function getPopupMicPreferences(): Promise<PopupMicPreferences> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['preferredMicDeviceId', 'preferredMicLabel'], (items) => {
-      resolve(items as PopupMicPreferences)
-    })
-  })
-}
-
 async function refreshMicStatus() {
   if (!micStatusEl) return
   try {
-    const prefs = await getPopupMicPreferences()
+    const prefs = await getMicPreferences()
     micStatusEl.textContent = `Mic: ${prefs.preferredMicDeviceId ? (prefs.preferredMicLabel || 'Selected microphone') : 'Default microphone'}`
   } catch {
     micStatusEl.textContent = ''
@@ -93,7 +82,6 @@ void (async () => {
     setUI(false);
   }
   refreshMicButton().catch(() => {});
-  refreshMicStatus().catch(() => {});
 })();
 
 // Reakcja na komunikaty stanu z tła/offscreen.
@@ -107,7 +95,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') return;
-  if (changes.preferredMicDeviceId || changes.preferredMicLabel) {
+  if (changes[MIC_DEVICE_ID_KEY] || changes[MIC_LABEL_KEY]) {
     refreshMicStatus().catch(() => {});
   }
 });
