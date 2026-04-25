@@ -86,7 +86,7 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
    c) Po ponowieniu review czekaj do 10 minut na kolejna porcje uwag Copilota.
    d) Ponow review Copilota tylko wtedy, gdy nie przekracza to ustalonego limitu rund.
    e) Domyslny limit to 3 rundy CR - poprawki - CR.
-   f) Jesli limit zostal osiagniety, nie pros o kolejne review automatycznie; zapytaj czlowieka, co dalej.
+   f) Po trzeciej rundzie poprawek wyslanych do PR nie pros Copilota o kolejne review automatycznie; uznaj proces Copilot CR za zakonczony.
 
 5. Wazne zasady
    a) Nigdy nie wdrazaj sugestii Copilota w ciemno.
