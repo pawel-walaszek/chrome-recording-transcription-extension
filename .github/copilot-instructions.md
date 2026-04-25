@@ -8,6 +8,7 @@ Stosuj te zasady przy generowaniu kodu, komentarzy i uwag review w tym repozytor
 2. Kod źródłowy to TypeScript w `src/`.
 3. webpack buduje entrypointy JavaScript i kopiuje `manifest.json` oraz pliki HTML do `dist/`.
 4. Projekt nie ma backendu, bazy danych ani celu wdrożenia.
+5. Lokalne wzorce MV3, media, messagingu, storage i TypeScript są opisane w `docs/agent-guides/chrome-extension-ts.md`.
 
 ## Priorytety review
 
@@ -16,6 +17,7 @@ Stosuj te zasady przy generowaniu kodu, komentarzy i uwag review w tym repozytor
 3. Brak walidacji dla zmienionego zachowania.
 4. Niespójność z istniejącą prostą strukturą TypeScript/webpack.
 5. Niepotrzebna złożoność albo szerokie refaktory.
+6. Niezgodność z `docs/agent-guides/chrome-extension-ts.md`, szczególnie przy zmianach w MV3 lifecycle, offscreen, storage, messagingu i media devices.
 
 ## Kompletność review
 

@@ -6,7 +6,8 @@ Priorytetyzuj uwagi w tej kolejności:
 2. Ryzyka związane z uprawnieniami Chrome, prywatnością albo obsługą danych.
 3. Błędy builda albo pakowania.
 4. Brak testu albo smoke testu dla zmienionego zachowania.
-5. Problemy utrzymywalności, które utrudniają przyszłe zmiany.
+5. Niezgodność z `docs/agent-guides/chrome-extension-ts.md`.
+6. Problemy utrzymywalności, które utrudniają przyszłe zmiany.
 
 Nie blokuj na uwagach wyłącznie formatowych, chyba że problem stylu utrudnia zrozumienie kodu.
 

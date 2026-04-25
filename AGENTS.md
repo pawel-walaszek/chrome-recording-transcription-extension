@@ -22,6 +22,7 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Kod zrodlowy jest w `src/` i kompiluje sie przez webpack + TypeScript.
 - Build trafia do `dist/`; nie edytuj recznie plikow wygenerowanych w `dist/`.
 - Entry pointy webpacka sa zdefiniowane w `webpack.config.js`; pliki HTML i `manifest.json` sa kopiowane do `dist/`.
+- Przed zmianami w `manifest.json`, `src/background.ts`, `src/offscreen.ts`, `src/popup.ts`, `src/micsetup.ts`, `webpack.config.js` albo HTML rozszerzenia stosuj przewodnik `docs/agent-guides/chrome-extension-ts.md`.
 - Uprawnienia Chrome i `host_permissions` zmieniaj tylko wtedy, gdy wymaga tego funkcjonalnosc, i opisz powod w podsumowaniu.
 - Przy kazdym generowaniu nowej wtyczki podbijaj `version` w `manifest.json`.
 - Przy poprawkach bugow podbijaj ostatnia liczbe wersji, np. `1.1.0` -> `1.1.1`.
@@ -37,6 +38,7 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Pliki `AGENTS.md` sa dla agentow i automatyzacji.
 - Pliki `README.md` sa dla czlowieka.
 - Dokumentacje techniczna trzymaj w `docs/`; indeks i zasady dla tego katalogu sa w `docs/AGENTS.md`.
+- Przewodniki agentowe trzymaj w `docs/agent-guides/`; maja zawierac lokalne zasady i linki do zrodel prawdy, bez kopiowania obcych dokumentacji.
 - Specyfikacje wiekszych zmian zapisuj w `docs/specs/` przed implementacja, gdy zadanie nie miesci sie w prostej poprawce.
 - Runbooki trzymaj w `docs/runbooks/` tylko dla powtarzalnych procedur.
 - Unikaj semantycznych duplikatow miedzy `AGENTS.md`, `README.md` i dokumentacja.
