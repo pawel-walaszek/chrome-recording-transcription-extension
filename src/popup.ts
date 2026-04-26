@@ -7,13 +7,52 @@ initDiagnostics('popup')
 
 const micBtn = document.getElementById('enable-mic') as HTMLButtonElement | null;
 const micStatusEl = document.getElementById('mic-status') as HTMLDivElement | null;
-const startBtn = document.getElementById('start-rec') as HTMLButtonElement | null;
-const stopBtn = document.getElementById('stop-rec') as HTMLButtonElement | null;
+const recordingToggleBtn = document.getElementById('recording-toggle') as HTMLButtonElement | null;
+const recordingStatusEl = document.getElementById('recording-status') as HTMLDivElement | null;
 
-function setUI(recording: boolean) {
-  if (!startBtn || !stopBtn) return;
-  startBtn.disabled = recording;
-  stopBtn.disabled = !recording;
+let recordingTimerId: number | null = null;
+let isRecording = false;
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const mm = String(minutes).padStart(2, '0');
+  const ss = String(seconds).padStart(2, '0');
+  if (!hours) return `${mm}:${ss}`;
+  return `${hours}:${mm}:${ss}`;
+}
+
+function stopRecordingTimer() {
+  if (recordingTimerId !== null) {
+    window.clearInterval(recordingTimerId);
+    recordingTimerId = null;
+  }
+  if (recordingStatusEl) recordingStatusEl.textContent = 'Not recording';
+}
+
+function startRecordingTimer(startedAt?: number | null) {
+  if (!recordingStatusEl) return;
+  if (recordingTimerId !== null) window.clearInterval(recordingTimerId);
+  const baseStartedAt = typeof startedAt === 'number' ? startedAt : Date.now();
+  const render = () => {
+    recordingStatusEl.textContent = `Recording: ${formatDuration(Date.now() - baseStartedAt)}`;
+  };
+  render();
+  recordingTimerId = window.setInterval(render, 1000);
+}
+
+function setUI(recording: boolean, recordingStartedAt?: number | null) {
+  isRecording = recording;
+  if (!recordingToggleBtn) return;
+  recordingToggleBtn.disabled = false;
+  recordingToggleBtn.textContent = recording ? 'Stop & Download' : 'Start Recording';
+  if (recording) {
+    startRecordingTimer(recordingStartedAt);
+  } else {
+    stopRecordingTimer();
+  }
 }
 
 function toast(msg: string) {
@@ -80,7 +119,7 @@ async function refreshMicButton() {
 void (async () => {
   try {
     const st = await chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATUS' });
-    setUI(!!st?.recording);
+    setUI(!!st?.recording, st?.recordingStartedAt ?? null);
   } catch {
     setUI(false);
   }
@@ -89,7 +128,7 @@ void (async () => {
 
 // Reakcja na komunikaty stanu z tła/offscreen.
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === 'RECORDING_STATE') setUI(!!msg.recording);
+  if (msg?.type === 'RECORDING_STATE') setUI(!!msg.recording, msg.recordingStartedAt ?? null);
   if (msg?.type === 'RECORDING_SAVED') {
     toast(`Saved: ${msg.filename || 'recording.webm'}`);
     setUI(false);
@@ -116,11 +155,10 @@ micBtn?.addEventListener('click', async () => {
 
 let inFlight = false;
 
-// Start nagrywania.
-startBtn?.addEventListener('click', async () => {
-  if (!startBtn || !stopBtn || inFlight) return;
+async function startRecording() {
+  if (!recordingToggleBtn) return;
   inFlight = true;
-  startBtn.disabled = true;
+  recordingToggleBtn.disabled = true;
 
   try {
     // Automatyczne przygotowanie mikrofonu, jeśli nie ma jeszcze uprawnienia.
@@ -148,7 +186,7 @@ startBtn?.addEventListener('click', async () => {
     if (!resp) throw new Error('No response from background');
     if (resp.ok === false) throw new Error(resp.error || 'Failed to start');
 
-    setUI(true);
+    setUI(true, resp.recordingStartedAt ?? null);
     toast('Recording started');
     if (resp.warning === 'NO_MIC_AUDIO') {
       alert('Recording started, but microphone audio is unavailable. The file will contain tab audio only.');
@@ -161,13 +199,12 @@ startBtn?.addEventListener('click', async () => {
   } finally {
     inFlight = false;
   }
-});
+}
 
-// Stop nagrywania.
-stopBtn?.addEventListener('click', async () => {
-  if (!startBtn || !stopBtn || inFlight) return;
+async function stopRecording() {
+  if (!recordingToggleBtn) return;
   inFlight = true;
-  stopBtn.disabled = true;
+  recordingToggleBtn.disabled = true;
 
   try {
     const resp = await chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
@@ -181,5 +218,15 @@ stopBtn?.addEventListener('click', async () => {
     setUI(false);
   } finally {
     inFlight = false;
+  }
+}
+
+// Start albo stop nagrywania, zależnie od bieżącego stanu.
+recordingToggleBtn?.addEventListener('click', async () => {
+  if (inFlight) return;
+  if (isRecording) {
+    await stopRecording();
+  } else {
+    await startRecording();
   }
 });

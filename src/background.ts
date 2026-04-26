@@ -10,6 +10,7 @@ let offscreenReady = false
 let lastKnownRecording = false
 let currentRecordingTabId: number | null = null
 let autoStopMeetTabId: number | null = null
+let recordingStartedAt: number | null = null
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 function bglog(...a: any[]) { console.log('[background]', ...a) }
@@ -22,6 +23,15 @@ function setBadge(recording: boolean, tabId?: number | null) {
 function setMeetReadyBadge(tabId: number, ready: boolean) {
   if (lastKnownRecording && currentRecordingTabId === tabId) return
   chrome.action.setBadgeText({ tabId, text: ready ? 'RDY' : '' }).catch?.(() => {})
+}
+
+function persistRecordingState(recording: boolean, startedAt: number | null): void {
+  try {
+    void (chrome.storage as any)?.session?.set?.({
+      recording,
+      recordingStartedAt: startedAt
+    })?.catch?.(() => {})
+  } catch {}
 }
 
 async function getMicPreferencesForOffscreen(): Promise<MicPreferences> {
@@ -87,6 +97,8 @@ async function resetOffscreen(): Promise<void> {
   lastKnownRecording = false
   currentRecordingTabId = null
   autoStopMeetTabId = null
+  recordingStartedAt = null
+  persistRecordingState(false, null)
   setBadge(false)
 
   try {
@@ -114,8 +126,15 @@ chrome.runtime.onConnect.addListener((port) => {
 
     if (msg?.type === 'RECORDING_STATE') {
       lastKnownRecording = !!msg.recording
+      if (lastKnownRecording && !recordingStartedAt) recordingStartedAt = Date.now()
+      if (!lastKnownRecording) recordingStartedAt = null
+      persistRecordingState(lastKnownRecording, recordingStartedAt)
       setBadge(lastKnownRecording, currentRecordingTabId)
-      chrome.runtime.sendMessage({ type: 'RECORDING_STATE', recording: lastKnownRecording }).catch(() => {})
+      chrome.runtime.sendMessage({
+        type: 'RECORDING_STATE',
+        recording: lastKnownRecording,
+        recordingStartedAt
+      }).catch(() => {})
       if (!lastKnownRecording) {
         currentRecordingTabId = null
         autoStopMeetTabId = null
@@ -156,6 +175,8 @@ chrome.runtime.onConnect.addListener((port) => {
     lastKnownRecording = false
     currentRecordingTabId = null
     autoStopMeetTabId = null
+    recordingStartedAt = null
+    persistRecordingState(false, null)
     setBadge(false)
   })
 })
@@ -221,6 +242,8 @@ async function stopRecording(reason: string): Promise<any> {
   setBadge(false, currentRecordingTabId)
   currentRecordingTabId = null
   autoStopMeetTabId = null
+  recordingStartedAt = null
+  persistRecordingState(false, null)
   return response
 }
 
@@ -292,9 +315,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           lastKnownRecording = true
           currentRecordingTabId = tabId
           autoStopMeetTabId = typeof msg.autoStopMeetTabId === 'number' ? msg.autoStopMeetTabId : tabId
+          if (!recordingStartedAt) recordingStartedAt = Date.now()
+          persistRecordingState(true, recordingStartedAt)
           setBadge(true, tabId)
-          chrome.runtime.sendMessage({ type: 'RECORDING_STATE', recording: true, warning: r.warning }).catch(() => {})
-          sendResponse({ ok: true, micIncluded: r.micIncluded, warning: r.warning })
+          chrome.runtime.sendMessage({
+            type: 'RECORDING_STATE',
+            recording: true,
+            recordingStartedAt,
+            warning: r.warning
+          }).catch(() => {})
+          sendResponse({ ok: true, micIncluded: r.micIncluded, warning: r.warning, recordingStartedAt })
         } else {
           sendResponse({ ok: false, error: r?.error || 'Failed to start' })
         }
@@ -319,7 +349,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 
     if (msg?.type === 'GET_RECORDING_STATUS') {
-      sendResponse({ recording: lastKnownRecording })
+      if (!lastKnownRecording) {
+        try {
+          const sessionState = await (chrome.storage as any)?.session?.get?.(['recording', 'recordingStartedAt'])
+          lastKnownRecording = !!sessionState?.recording
+          recordingStartedAt = typeof sessionState?.recordingStartedAt === 'number'
+            ? sessionState.recordingStartedAt
+            : null
+        } catch {}
+      }
+      sendResponse({ recording: lastKnownRecording, recordingStartedAt })
       return
     }
 

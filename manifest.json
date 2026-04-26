@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Google Meet Recorder",
-    "version": "1.5.0",
+    "version": "1.5.1",
     "permissions": ["activeTab", "downloads", "tabCapture", "offscreen", "storage", "tabs", "desktopCapture"],
     "host_permissions": ["https://sentry.eengine.pl/*"],
     "action": { "default_popup": "popup.html" },

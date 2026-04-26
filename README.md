@@ -114,8 +114,9 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
    a) Jest jeden przycisk konfiguracji mikrofonu: przy pierwszym użyciu ma etykietę **Enable Microphone**, otwiera stronę konfiguracji i prosi o dostęp do mikrofonu.
    b) Po nadaniu uprawnienia ten sam przycisk zmienia etykietę na **Microphone Settings** i pozwala później zmienić mikrofon.
    c) Na stronie konfiguracji wybierz `Default microphone` albo konkretne urządzenie wejściowe i kliknij `Save Microphone`.
-   d) **Start Recording**: rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest dostępny i miksowanie jest aktywne (domyślnie), mikrofon zostanie domiksowany.
-   e) **Stop & Download**: finalizuje i pobiera `google-meet-recording-<meeting-id>-<timestamp>.webm`.
+   d) **Start Recording** rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest dostępny i miksowanie jest aktywne (domyślnie), mikrofon zostanie domiksowany.
+   e) Podczas nagrywania ten sam przycisk zmienia się na **Stop & Download**, finalizuje i pobiera `google-meet-recording-<meeting-id>-<timestamp>.webm`.
+   f) Status pod przyciskami pokazuje, czy nagrywanie trwa i ile czasu już nagrano.
 
 > Na aktywnym spotkaniu Google Meet rozszerzenie pokazuje znacznik `RDY`, a podczas nagrywania `REC`. Jeśli nagranie zostało rozpoczęte na karcie Meet, wyjście ze spotkania automatycznie zatrzymuje nagrywanie i pobiera plik. Wszystkie pliki są zapisywane lokalnie przez Chrome Downloads API.
 

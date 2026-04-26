@@ -26,6 +26,7 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Uprawnienia Chrome i `host_permissions` zmieniaj tylko wtedy, gdy wymaga tego funkcjonalnosc, i opisz powod w podsumowaniu.
 - Przy kazdym generowaniu nowej wtyczki podbijaj `version` w `manifest.json`.
 - Przy poprawkach bugow podbijaj ostatnia liczbe wersji, np. `1.1.0` -> `1.1.1`.
+- Zmiany UX, drobne funkcje pomocnicze i male usprawnienia podbijaja patch, nie minor. Minor podbijaj tylko dla znaczacych funkcji albo zmian zachowania o wiekszym zakresie.
 
 ## Weryfikacja
 
