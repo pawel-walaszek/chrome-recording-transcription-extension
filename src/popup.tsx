@@ -363,6 +363,12 @@ function App(): React.ReactElement {
       const response = await chrome.runtime.sendMessage({ type: 'STOP_RECORDING' })
       if (!response) throw new Error('No response from background')
       if (response.ok === false) throw new Error(response.error || 'Failed to stop')
+      setRecordingState({
+        recording: false,
+        starting: false,
+        stopping: false,
+        recordingStartedAt: null
+      })
       console.log('[popup] Stopping... uploading...')
     } catch (error: any) {
       console.error('[popup] STOP_RECORDING error', error)

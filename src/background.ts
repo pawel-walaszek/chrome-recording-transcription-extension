@@ -47,6 +47,7 @@ function clearRecordingAfterConfirmedStop(stoppedTabId: number | null): void {
   autoStopMeetTabId = null
   recordingStartedAt = null
   persistRecordingState(false, null)
+  broadcastRecordingState()
 
   if (typeof stoppedTabId === 'number' && meetTabsInMeeting.has(stoppedTabId)) {
     setMeetReadyBadge(stoppedTabId, true)
