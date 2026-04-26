@@ -1,7 +1,6 @@
 import { captureException } from './diagnostics'
 import {
   makeAuthorizationHeader,
-  markMeet2NoteReconnectRequired,
   Meet2NoteAuthError,
   requireMeet2NoteExtensionToken
 } from './extensionAuth'
@@ -185,9 +184,6 @@ export async function uploadRecordingOnce(input: UploadRecordingInput): Promise<
       assets
     }
   } catch (error) {
-    if (error instanceof Meet2NoteAuthError) {
-      void markMeet2NoteReconnectRequired(error.message).catch(() => {})
-    }
     captureException(error, {
       operation: 'uploadRecordingOnce',
       hasMicrophoneAsset: !!input.microphoneBlob,

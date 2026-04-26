@@ -303,6 +303,8 @@ function App(): React.ReactElement {
     recordingState.starting ||
     recordingState.stopping ||
     uploadBlocksAction
+  const connectionErrorMessage = meet2NoteConnection.authError ||
+    (uploadState.status === 'auth_required' ? uploadState.error : null)
 
   const openSettings = useCallback(async () => {
     try {
@@ -500,6 +502,14 @@ function App(): React.ReactElement {
             <Text type={meet2NoteConnection.authError ? 'danger' : 'secondary'} style={{ fontSize: 12, lineHeight: 1.25 }}>
               {meet2NoteConnection.authError ? 'Reconnect to Meet2Note' : 'Not connected'}
             </Text>
+            {connectionErrorMessage ? (
+              <Alert
+                type="error"
+                showIcon={false}
+                message={connectionErrorMessage}
+                style={{ fontSize: 12, padding: '4px 8px' }}
+              />
+            ) : null}
           </>
         )}
         {recordingControlsAvailable ? (
