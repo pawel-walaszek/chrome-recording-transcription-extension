@@ -19,12 +19,12 @@ Docelowy backend dla uploadu i przetwarzania nagrań będzie rozwijany w powiąz
 | Komponent | Ścieżka | Rola |
 | --- | --- | --- |
 | Manifest | `manifest.json` | Deklaruje metadane MV3, uprawnienia, worker tła i dostępne zasoby. |
-| Popup | `popup.html`, `src/popup.ts` | Kontrolki użytkownika do otwierania ustawień mikrofonu oraz startu/stopu nagrywania. |
+| Popup | `popup.html`, `src/popup.tsx` | Interfejs React + Ant Design do otwierania ustawień mikrofonu oraz startu/stopu nagrywania. |
 | Watcher Google Meet | `src/meetWatcher.ts`, `manifest.json` | Content script na `meet.google.com`, który wykrywa aktywne spotkanie i opuszczenie spotkania. |
 | Service worker tła | `src/background.ts` | Koordynuje przechwytywanie karty, cykl życia dokumentu offscreen, stan nagrywania/uploadu i znaczniki. |
 | Nagrywarka offscreen | `offscreen.html`, `src/offscreen.ts` | Przechwytuje media z karty, nagrywa osobny asset mikrofonu, finalizuje bloby i wysyła je do backendu. |
 | Klient uploadu | `src/uploadClient.ts` | Wykonuje kontrakt uploadu backendu: `/init`, upload assetów, `/complete`. |
-| Strona konfiguracji mikrofonu | `micsetup.html`, `src/micsetup.ts` | Widoczna strona rozszerzenia używana do nadania uprawnienia mikrofonu, wyboru urządzenia i zapisu konfiguracji w `chrome.storage.local`. |
+| Strona konfiguracji mikrofonu | `micsetup.html`, `src/micsetup.tsx` | Widoczna strona React + Ant Design używana do nadania uprawnienia mikrofonu, wyboru urządzenia i zapisu konfiguracji w `chrome.storage.local`. |
 | Preferencje mikrofonu | `src/micPreferences.ts` | Wspólne klucze i helpery `chrome.storage.local` dla zapisanego wyboru mikrofonu. |
 | Diagnostyka Sentry | `src/diagnostics.ts`, `scripts/sentry-public-dsn.sh`, `Makefile` | Opcjonalnie inicjalizuje Sentry, jeśli build ma dostęp do publicznego DSN albo sekretów pozwalających pobrać DSN przez API. |
 | Build kontenerowy | `compose.yml`, `Makefile` | Domyślny lokalny punkt wejścia do builda i walidacji. Uruchamia npm w Docker Compose bez lokalnego Node.js. |

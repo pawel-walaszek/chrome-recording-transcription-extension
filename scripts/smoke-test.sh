@@ -1,4 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-make check
+if command -v make >/dev/null 2>&1; then
+  make check
+else
+  npm run check
+fi

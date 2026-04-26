@@ -31,6 +31,7 @@ Szybko potwierdzic, ze build oraz najwazniejsze sciezki rozszerzenia dzialaja po
 
 - `make check` konczy sie sukcesem.
 - `dist/` laduje sie jako rozszerzenie bez bledow manifestu.
+- Popup i strona konfiguracji mikrofonu renderuja UI Ant Design bez pustego ekranu.
 - Strona konfiguracji mikrofonu pokazuje `Default microphone` i pozwala zapisac wybor.
 - Nagrywanie startuje, zatrzymuje sie i wysyla assety do backendu, jesli dotknieto kodu recording/offscreen/upload/permissions.
 - Po sukcesie Chrome nie pobiera lokalnego `.webm`.

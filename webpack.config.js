@@ -8,21 +8,21 @@ module.exports = {
   mode: 'production',
   devtool: false,
   entry: {
-    popup: './src/popup.ts',
+    popup: './src/popup.tsx',
     background: './src/background.ts',
     offscreen: './src/offscreen.ts',
-    micsetup: './src/micsetup.ts',
+    micsetup: './src/micsetup.tsx',
     meetWatcher: './src/meetWatcher.ts',
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: '[name].js'
   },
-  resolve: { extensions: ['.ts', '.js'] },
+  resolve: { extensions: ['.tsx', '.ts', '.js'] },
   module: {
     rules: [
       {
-        test: /\.ts$/,
+        test: /\.tsx?$/,
         use: 'ts-loader',
         exclude: /node_modules/
       }
@@ -42,6 +42,7 @@ module.exports = {
         { from: 'popup.html',     to: 'popup.html' },
         { from: 'offscreen.html', to: 'offscreen.html', noErrorOnMissing: true },
         { from: 'micsetup.html', to: 'micsetup.html' },
+        { from: 'assets/icons', to: 'icons' },
       ]
     })
   ]

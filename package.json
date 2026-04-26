@@ -11,6 +11,8 @@
     "devDependencies": {
         "@types/chrome": "^0.0.326",
         "@types/node": "^24.0.4",
+        "@types/react": "^19.2.14",
+        "@types/react-dom": "^19.2.3",
         "clean-webpack-plugin": "^4.0.0",
         "copy-webpack-plugin": "^13.0.1",
         "ts-loader": "^9.5.0",
@@ -24,6 +26,10 @@
     "license": "ISC",
     "description": "",
     "dependencies": {
-        "@sentry/browser": "^10.50.0"
+        "@ant-design/icons": "^6.1.1",
+        "@sentry/browser": "^10.50.0",
+        "antd": "^6.3.6",
+        "react": "^19.2.5",
+        "react-dom": "^19.2.5"
     }
 }
