@@ -187,6 +187,32 @@ function App(): React.ReactElement {
   }, [refreshMic])
 
   useEffect(() => {
+    if (!('permissions' in navigator)) return undefined
+
+    let mounted = true
+    let permissionStatus: PermissionStatus | null = null
+    const refreshOnPermissionChange = () => {
+      refreshMic().catch(() => {})
+    }
+
+    void (async () => {
+      try {
+        const status = await (navigator as any).permissions.query({ name: 'microphone' }) as PermissionStatus
+        if (!mounted) return
+        permissionStatus = status
+        status.onchange = refreshOnPermissionChange
+      } catch {
+        permissionStatus = null
+      }
+    })()
+
+    return () => {
+      mounted = false
+      if (permissionStatus) permissionStatus.onchange = null
+    }
+  }, [refreshMic])
+
+  useEffect(() => {
     const messageListener = (msg: any) => {
       if (msg?.type === 'RECORDING_STATE') {
         const startedAt = msg.recordingStartedAt ?? msg.startRequestedAt ?? null
