@@ -142,9 +142,12 @@ function App(): React.ReactElement {
   const inFlightRef = useRef(false)
 
   useEffect(() => {
+    if (!recordingState.recording && uploadState.status !== 'upload_retrying') return undefined
+
+    setNow(Date.now())
     const timerId = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timerId)
-  }, [])
+  }, [recordingState.recording, uploadState.status])
 
   const refreshMic = useCallback(async () => {
     const [button, status] = await Promise.all([
