@@ -146,10 +146,10 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 ├─ src/
 │  ├─ background.ts     # service worker MV3: tworzy offscreen i koordynuje strumienie
 │  ├─ offscreen.ts      # uruchamia nagrywarkę i wysyła assety do backendu
-│  ├─ popup.ts          # obsługa popupu: mikrofon, start/stop
+│  ├─ popup.tsx         # UI popupu w React + Ant Design: mikrofon, start/stop
 │  ├─ micPreferences.ts # wspólne helpery zapisu wyboru mikrofonu
 │  ├─ uploadClient.ts   # klient kontraktu uploadu backendu
-│  └─ micsetup.ts       # widoczna strona do nadania uprawnienia i wyboru mikrofonu
+│  └─ micsetup.tsx      # strona React + Ant Design do nadania uprawnienia i wyboru mikrofonu
 └─ dist/                # wygenerowany wynik builda
 ```
 
@@ -203,21 +203,31 @@ Skrypty npm są szczegółem implementacyjnym używanym przez kontener buildowy 
 
 1. TypeScript (`target` `es2020`)
 2. webpack 5 + ts-loader
-3. copy-webpack-plugin, clean-webpack-plugin
-4. @types/chrome, @types/node
-5. @sentry/browser dla opcjonalnej diagnostyki błędów
+3. React + Ant Design dla popupu i strony konfiguracji mikrofonu
+4. copy-webpack-plugin, clean-webpack-plugin
+5. @types/chrome, @types/node, @types/react, @types/react-dom
+6. @sentry/browser dla opcjonalnej diagnostyki błędów
 
 Są już zadeklarowane w `package.json`:
 ```
 "devDependencies": {
   "@types/chrome": "^0.0.326",
   "@types/node": "^24.0.4",
+  "@types/react": "^19.2.14",
+  "@types/react-dom": "^19.2.3",
   "clean-webpack-plugin": "^4.0.0",
   "copy-webpack-plugin": "^13.0.1",
   "ts-loader": "^9.5.0",
   "typescript": "^5.8.3",
   "webpack": "^5.99.9",
   "webpack-cli": "^6.0.1"
+},
+"dependencies": {
+  "@ant-design/icons": "^6.1.1",
+  "@sentry/browser": "^10.50.0",
+  "antd": "^6.3.6",
+  "react": "^19.2.5",
+  "react-dom": "^19.2.5"
 }
 ```
 ## Wyjaśnienie uprawnień
