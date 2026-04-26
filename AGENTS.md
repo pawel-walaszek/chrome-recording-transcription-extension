@@ -53,6 +53,22 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Commit, push i tworzenie Pull Request wykonuj tylko po wyraznej zgodzie czlowieka.
 - PR powinien zawierac zakres, sposob weryfikacji, ryzyka oraz informacje o zmianach w uprawnieniach Chrome, jesli takie wystapily.
 
+## Powiazane repozytorium backendu
+
+1. Backend dla tej wtyczki znajduje sie w repozytorium `recording-backend`.
+   a) Lokalna sciezka: `/Users/pawel.walaszek/playground/recording-backend`.
+   b) GitHub: `pawel-walaszek/recording-backend`.
+
+2. Backend jest docelowym server-side dla uploadu, przetwarzania, transkrypcji i udostepniania nagran z tej wtyczki.
+
+3. Przy zmianach dotyczacych uploadu, formatu plikow, metadanych nagrania, autoryzacji, API albo przyszlego MCP:
+   a) sprawdz repo backendu,
+   b) sprawdz kontrakt API backend-wtyczka,
+   c) zaktualizuj dokumentacje po obu stronach,
+   d) uruchom dostepne walidacje albo opisz, czego nie dalo sie sprawdzic.
+
+4. Zrodlem prawdy kontraktu integracyjnego ma byc `docs/contracts/recording-upload.openapi.yml` w repo backendu, gdy plik zostanie utworzony.
+
 ## Skrot `+PR`
 
 Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.

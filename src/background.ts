@@ -11,6 +11,7 @@ let lastKnownRecording = false
 let currentRecordingTabId: number | null = null
 let autoStopMeetTabId: number | null = null
 let recordingStartedAt: number | null = null
+const meetTabsInMeeting = new Set<number>()
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 function bglog(...a: any[]) { console.log('[background]', ...a) }
@@ -255,11 +256,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
       if (msg.inMeeting) {
         bglog('Meet meeting detected on tab', tabId)
+        meetTabsInMeeting.add(tabId)
+        if (lastKnownRecording && currentRecordingTabId === tabId && autoStopMeetTabId === null) {
+          autoStopMeetTabId = tabId
+        }
         setMeetReadyBadge(tabId, true)
       } else {
         bglog('Meet meeting left on tab', tabId)
+        const wasConfirmedInMeeting = meetTabsInMeeting.has(tabId)
+        meetTabsInMeeting.delete(tabId)
         setMeetReadyBadge(tabId, false)
-        if (lastKnownRecording && autoStopMeetTabId === tabId) {
+        if (wasConfirmedInMeeting && lastKnownRecording && autoStopMeetTabId === tabId) {
           try {
             await stopRecording('MEET_LEFT')
             sendResponse({ ok: true, stopped: true })
@@ -314,7 +321,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (r?.ok) {
           lastKnownRecording = true
           currentRecordingTabId = tabId
-          autoStopMeetTabId = typeof msg.autoStopMeetTabId === 'number' ? msg.autoStopMeetTabId : tabId
+          autoStopMeetTabId = meetTabsInMeeting.has(tabId)
+            ? (typeof msg.autoStopMeetTabId === 'number' ? msg.autoStopMeetTabId : tabId)
+            : null
           if (!recordingStartedAt) recordingStartedAt = Date.now()
           persistRecordingState(true, recordingStartedAt)
           setBadge(true, tabId)

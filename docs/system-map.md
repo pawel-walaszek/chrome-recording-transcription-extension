@@ -6,6 +6,12 @@ To repozytorium buduje rozszerzenie Chrome Manifest V3 do nagrywania spotkań w 
 
 Rozszerzenie nagrywa bieżącą kartę do lokalnego pliku `.webm`. Nagrywanie odbywa się w przeglądarce, bez backendu.
 
+Docelowy backend dla uploadu i przetwarzania nagrań będzie rozwijany w powiązanym repozytorium `recording-backend`:
+
+1. Lokalnie: `/Users/pawel.walaszek/playground/recording-backend`.
+2. GitHub: `pawel-walaszek/recording-backend`.
+3. Kontrakt integracyjny będzie utrzymywany w `docs/contracts/recording-upload.openapi.yml` po stronie backendu, gdy zostanie utworzony.
+
 ## Komponenty
 
 | Komponent | Ścieżka | Rola |
