@@ -604,7 +604,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === 'GET_MEET2NOTE_EXTENSION_TOKEN') {
       try {
         const token = await getMeet2NoteExtensionToken()
-        sendResponse({ ok: true, token })
+        if (typeof token === 'string' && token.trim()) {
+          sendResponse({ ok: true, token })
+        } else {
+          sendResponse({ ok: false, error: 'Connect to Meet2Note before uploading.' })
+        }
       } catch (e: any) {
         captureException(e, { operation: 'GET_MEET2NOTE_EXTENSION_TOKEN' })
         sendResponse({ ok: false, error: e?.message || String(e) })
