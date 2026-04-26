@@ -29,6 +29,13 @@
     ],
     "web_accessible_resources": [
       { "resources": ["offscreen.html"], "matches": ["<all_urls>"] },
-      { "resources": ["connect-callback.html"], "matches": ["https://meet2note.com/*"] }
+      {
+        "resources": ["connect-callback.html"],
+        "matches": [
+          "https://meet2note.com/*",
+          "http://localhost/*",
+          "http://127.0.0.1/*"
+        ]
+      }
     ]
   }
