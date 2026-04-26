@@ -40,6 +40,7 @@ export const MEET2NOTE_CONNECT_STATE_KEY = 'meet2noteConnectState'
 export const MEET2NOTE_CONNECT_STARTED_AT_KEY = 'meet2noteConnectStartedAt'
 
 const CONNECT_STATE_TTL_MS = 10 * 60_000
+const TOKEN_EXCHANGE_TIMEOUT_MS = 30_000
 
 export class Meet2NoteAuthError extends Error {
   readonly status?: number
@@ -208,17 +209,34 @@ function parseTokenResponse(data: ExtensionTokenResponse): {
   }
 }
 
+async function fetchTokenExchange(code: string): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), TOKEN_EXCHANGE_TIMEOUT_MS)
+
+  try {
+    return await fetch(makeMeet2NoteUrl('/api/extension/token'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+      signal: controller.signal
+    })
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`Meet2Note connection timed out after ${Math.round(TOKEN_EXCHANGE_TIMEOUT_MS / 1000)} seconds.`)
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
 export async function exchangeMeet2NoteConnectionCode(code: string, state: string): Promise<void> {
   if (!code) throw new Error('Missing connection code.')
   if (!state) throw new Error('Missing connection state.')
 
   await validateReturnedState(state)
 
-  const response = await fetch(makeMeet2NoteUrl('/api/extension/token'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code })
-  })
+  const response = await fetchTokenExchange(code)
 
   if (!response.ok) {
     throw new Error(`Meet2Note connection failed with HTTP ${response.status}.`)
