@@ -505,7 +505,7 @@ function App(): React.ReactElement {
               Meet2Note
             </Text>
             <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
-              Recording extension
+              Just meet. We note.
             </Text>
           </Flex>
         </Flex>
