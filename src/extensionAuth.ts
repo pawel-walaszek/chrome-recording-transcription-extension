@@ -169,6 +169,17 @@ export async function clearMeet2NoteAuthError(): Promise<void> {
   await storageRemove([MEET2NOTE_AUTH_ERROR_KEY])
 }
 
+export async function disconnectMeet2Note(): Promise<void> {
+  await storageRemove([
+    MEET2NOTE_EXTENSION_TOKEN_KEY,
+    MEET2NOTE_CONNECTED_USER_KEY,
+    MEET2NOTE_CONNECTED_AT_KEY,
+    MEET2NOTE_AUTH_ERROR_KEY,
+    MEET2NOTE_CONNECT_STATE_KEY,
+    MEET2NOTE_CONNECT_STARTED_AT_KEY
+  ])
+}
+
 async function validateReturnedState(returnedState: string): Promise<void> {
   const items = await storageGet<StoredConnectState>([
     MEET2NOTE_CONNECT_STATE_KEY,

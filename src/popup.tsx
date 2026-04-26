@@ -5,6 +5,7 @@ import {
   CloudUploadOutlined,
   LinkOutlined,
   LoadingOutlined,
+  LogoutOutlined,
   SettingOutlined,
   VideoCameraOutlined
 } from '@ant-design/icons'
@@ -13,6 +14,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { captureException, initDiagnostics } from './diagnostics'
 import {
+  disconnectMeet2Note,
   getMeet2NoteConnection,
   MEET2NOTE_AUTH_ERROR_KEY,
   MEET2NOTE_CONNECTED_AT_KEY,
@@ -42,6 +44,7 @@ interface UploadState {
 
 const { Text } = Typography
 const START_RECORDING_POPUP_DELAY_MS = 3_000
+const MEET2NOTE_BRAND_ICON_URL = chrome.runtime.getURL('icons/meet2note-favicon.svg')
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
@@ -163,6 +166,7 @@ function App(): React.ReactElement {
   const [now, setNow] = useState(Date.now())
   const [inFlight, setInFlight] = useState(false)
   const [connectingMeet2Note, setConnectingMeet2Note] = useState(false)
+  const [disconnectingMeet2Note, setDisconnectingMeet2Note] = useState(false)
   const inFlightRef = useRef(false)
 
   useEffect(() => {
@@ -298,6 +302,10 @@ function App(): React.ReactElement {
   const recordingButtonText = getRecordingButtonText(recordingState, uploadState)
   const recordingControlsAvailable = meet2NoteConnection.connected
   const uploadBlocksAction = uploadState.status === 'uploading' || uploadState.status === 'upload_retrying'
+  const connectionActionDisabled = recordingState.recording ||
+    recordingState.starting ||
+    recordingState.stopping ||
+    uploadBlocksAction
   const actionDisabled = !recordingControlsAvailable ||
     inFlight ||
     recordingState.starting ||
@@ -329,6 +337,20 @@ function App(): React.ReactElement {
       setConnectingMeet2Note(false)
     }
   }, [])
+
+  const disconnectMeet2NoteAccount = useCallback(async () => {
+    setDisconnectingMeet2Note(true)
+    try {
+      await disconnectMeet2Note()
+      await refreshMeet2NoteConnection()
+    } catch (error) {
+      console.error('[popup] Meet2Note disconnect flow error', error)
+      captureException(error, { operation: 'disconnectMeet2Note' })
+      alert(`Could not disconnect Meet2Note:\n${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setDisconnectingMeet2Note(false)
+    }
+  }, [refreshMeet2NoteConnection])
 
   const startRecording = useCallback(async () => {
     inFlightRef.current = true
@@ -472,6 +494,22 @@ function App(): React.ReactElement {
       }}
     >
       <Flex vertical gap={8} style={{ width: 232, padding: 10 }}>
+        <Flex align="center" gap={10}>
+          <img
+            alt="Meet2Note"
+            src={MEET2NOTE_BRAND_ICON_URL}
+            style={{ width: 28, height: 28, display: 'block', borderRadius: 8 }}
+          />
+          <Flex vertical gap={0}>
+            <Text strong style={{ fontSize: 14, lineHeight: 1.1 }}>
+              Meet2Note
+            </Text>
+            <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+              Recording extension
+            </Text>
+          </Flex>
+        </Flex>
+        <Divider style={{ margin: '2px 0 4px' }} />
         <Button
           block
           icon={<SettingOutlined />}
@@ -485,13 +523,27 @@ function App(): React.ReactElement {
         </Text>
         <Divider style={{ margin: '4px 0' }} />
         {meet2NoteConnection.connected ? (
-          <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.25 }}>
-            Connected: {meet2NoteConnection.user?.email || meet2NoteConnection.user?.displayName || 'Meet2Note'}
-          </Text>
+          <Flex vertical gap={6}>
+            <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.25 }}>
+              Connected: {meet2NoteConnection.user?.email || meet2NoteConnection.user?.displayName || 'Meet2Note'}
+            </Text>
+            <Button
+              block
+              danger
+              disabled={connectionActionDisabled}
+              icon={<LogoutOutlined />}
+              loading={disconnectingMeet2Note}
+              onClick={disconnectMeet2NoteAccount}
+              size="small"
+            >
+              Disconnect
+            </Button>
+          </Flex>
         ) : (
           <>
             <Button
               block
+              disabled={disconnectingMeet2Note}
               icon={<LinkOutlined />}
               loading={connectingMeet2Note}
               onClick={connectMeet2Note}
