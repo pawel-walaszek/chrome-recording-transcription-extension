@@ -1,0 +1,157 @@
+name: Publish Extension Package
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-extension-package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect-version-bump:
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.detect.outputs.should_publish }}
+      current_version: ${{ steps.detect.outputs.current_version }}
+      previous_version: ${{ steps.detect.outputs.previous_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect manifest version bump
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_version="$(node -p "require('./manifest.json').version")"
+          previous_version=""
+          should_publish="false"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            should_publish="true"
+          elif ! git rev-parse HEAD^ >/dev/null 2>&1; then
+            should_publish="true"
+          elif git show HEAD^:manifest.json >/tmp/previous-manifest.json 2>/dev/null; then
+            previous_version="$(node -p "JSON.parse(require('fs').readFileSync('/tmp/previous-manifest.json', 'utf8')).version")"
+            if [ "${current_version}" != "${previous_version}" ]; then
+              should_publish="true"
+            fi
+          else
+            should_publish="true"
+          fi
+
+          echo "current_version=${current_version}" >> "${GITHUB_OUTPUT}"
+          echo "previous_version=${previous_version}" >> "${GITHUB_OUTPUT}"
+          echo "should_publish=${should_publish}" >> "${GITHUB_OUTPUT}"
+
+      - name: Summary
+        run: |
+          echo "Current version: ${{ steps.detect.outputs.current_version }}"
+          echo "Previous version: ${{ steps.detect.outputs.previous_version }}"
+          echo "Should publish: ${{ steps.detect.outputs.should_publish }}"
+
+  build-package:
+    needs: detect-version-bump
+    if: needs.detect-version-bump.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package extension ZIP
+        run: ./scripts/package-extension.sh
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-package-v${{ needs.detect-version-bump.outputs.current_version }}
+          path: release/meet2note-chrome-extension-v${{ needs.detect-version-bump.outputs.current_version }}.zip
+          if-no-files-found: error
+
+  publish-to-meet2note:
+    needs:
+      - detect-version-bump
+      - build-package
+    if: needs.detect-version-bump.outputs.should_publish == 'true'
+    runs-on:
+      - self-hosted
+      - meet2note
+      - production
+    env:
+      EXTENSION_DOWNLOADS_HOST_DIR: ${{ vars.EXTENSION_DOWNLOADS_HOST_DIR }}
+      EXTENSION_DOWNLOAD_VALIDATE_URL: ${{ vars.EXTENSION_DOWNLOAD_VALIDATE_URL }}
+      EXTENSION_DOWNLOAD_FILE_URL: ${{ vars.EXTENSION_DOWNLOAD_FILE_URL }}
+      VERSION: ${{ needs.detect-version-bump.outputs.current_version }}
+    steps:
+      - name: Download ZIP artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-package-v${{ needs.detect-version-bump.outputs.current_version }}
+          path: release
+
+      - name: Publish ZIP to Meet2Note downloads directory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          target_dir="${EXTENSION_DOWNLOADS_HOST_DIR:-/home/docker/recording-backend/shared/downloads}"
+          package_name="meet2note-chrome-extension-v${VERSION}.zip"
+          package_path="release/${package_name}"
+
+          if [ ! -f "${package_path}" ]; then
+            echo "Package not found: ${package_path}" >&2
+            exit 1
+          fi
+
+          mkdir -p "${target_dir}"
+          install -m 0644 "${package_path}" "${target_dir}/${package_name}"
+          ls -lh "${target_dir}/${package_name}"
+
+      - name: Validate public metadata endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          validate_url="${EXTENSION_DOWNLOAD_VALIDATE_URL:-https://meet2note.com/api/extension/download/latest}"
+          file_url="${EXTENSION_DOWNLOAD_FILE_URL:-https://meet2note.com/api/extension/download/latest/file}"
+
+          response="$(curl -fsS "${validate_url}")"
+          echo "${response}"
+
+          RESPONSE_JSON="${response}" EXPECTED_VERSION="${VERSION}" node <<'EOF'
+          const response = JSON.parse(process.env.RESPONSE_JSON || '{}');
+          const expectedVersion = process.env.EXPECTED_VERSION;
+
+          if (response.available !== true) {
+            console.error('Expected available=true from metadata endpoint');
+            process.exit(1);
+          }
+
+          if (response.version !== expectedVersion) {
+            console.error(`Expected version ${expectedVersion}, got ${response.version}`);
+            process.exit(1);
+          }
+          EOF
+
+          curl -I -fsS "${file_url}"

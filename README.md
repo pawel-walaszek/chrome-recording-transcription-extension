@@ -81,6 +81,8 @@ make check
 
 Przy zmianach widocznych w przeglądarce wykonaj też test dymny z [`docs/runbooks/002-smoke-test-po-zmianach.md`](docs/runbooks/002-smoke-test-po-zmianach.md): przebuduj projekt, przeładuj `dist/` w `chrome://extensions`, a następnie sprawdź nagrywanie w Google Meet, jeśli zmiana go dotyczy.
 
+Publikacja paczki ZIP dla serwisu Meet2Note jest opisana w [`docs/runbooks/003-publikacja-paczki-zip-wtyczki.md`](docs/runbooks/003-publikacja-paczki-zip-wtyczki.md). Zmiana `version` w `manifest.json` i push do `main` uruchamia workflow GitHub Actions, który buduje ZIP i publikuje go na serwerze.
+
 
 Otwórz Google Meet i kliknij ikonę rozszerzenia:
 1. **Connect to Meet2Note** - otwiera backendowy flow połączenia z kontem użytkownika.
@@ -185,6 +187,8 @@ UPLOAD_API_BASE_URL=http://localhost:3000 make build
 
 `make build` - domyślny build produkcyjny do `dist/` przez Docker Compose
 `make check` - domyślna walidacja: typecheck i build produkcyjny w kontenerze
+`make package` - buduje `dist/` i tworzy `release/meet2note-chrome-extension-vX.Y.Z.zip`
+`make zip` - alias do `make package`
 `make shell` - otwiera powłokę w kontenerze buildowym
 `make clean` - usuwa wygenerowany `dist/`
 `make deps-clean` - usuwa wolumeny zależności/cache Docker Compose

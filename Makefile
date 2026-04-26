@@ -10,13 +10,18 @@ export SENTRY_DSN
 export SENTRY_ENVIRONMENT
 export UPLOAD_API_BASE_URL
 
-.PHONY: build check shell clean deps-clean prepare-deps
+.PHONY: build check shell clean deps-clean prepare-deps package zip
 
 build: prepare-deps
 	$(COMPOSE) run --rm builder ./node_modules/.bin/webpack --mode=production
 
 check: prepare-deps
 	$(COMPOSE) run --rm builder sh -lc './node_modules/.bin/tsc --noEmit && ./node_modules/.bin/webpack --mode=production'
+
+package: build
+	./scripts/package-extension.sh
+
+zip: package
 
 shell: prepare-deps
 	$(COMPOSE) run --rm builder sh
