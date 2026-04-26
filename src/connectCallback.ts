@@ -12,6 +12,24 @@ function setStatus(title: string, detail: string, state: 'pending' | 'success' |
   if (detailElement) detailElement.textContent = detail
 }
 
+async function closeCurrentTab(): Promise<void> {
+  try {
+    const tabs = await chrome.tabs.query({
+      active: true,
+      currentWindow: true
+    })
+    const currentTabId = tabs[0]?.id
+    if (typeof currentTabId === 'number') {
+      await chrome.tabs.remove(currentTabId)
+      return
+    }
+  } catch {
+    // Fall back to window.close below.
+  }
+
+  window.close()
+}
+
 async function handleCallback(): Promise<void> {
   const params = new URLSearchParams(window.location.search)
   const error = params.get('error')
@@ -24,7 +42,9 @@ async function handleCallback(): Promise<void> {
 
   await exchangeMeet2NoteConnectionCode(code, state)
   setStatus('Connected to Meet2Note', 'You can close this tab and return to the extension.', 'success')
-  window.setTimeout(() => window.close(), 2500)
+  setTimeout(() => {
+    void closeCurrentTab()
+  }, 2500)
 }
 
 setStatus('Connecting to Meet2Note...', 'Finishing extension connection.', 'pending')

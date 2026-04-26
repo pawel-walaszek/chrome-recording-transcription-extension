@@ -43,8 +43,9 @@ Rozszerzenie używa następujących uprawnień Chrome:
 `activeTab`, `tabCapture`, `offscreen`, `storage`, `tabs`, `desktopCapture`.
 
 Rozszerzenie ma też wąskie `host_permissions` dla:
-1. `https://meet2note.com/*` - upload nagrań do backendu.
-2. `https://sentry.eengine.pl/*` - opcjonalna diagnostyka błędów, jeśli build zawiera DSN Sentry.
+1. `https://meet2note.com/*` - flow połączenia konta, wymiana kodu i upload nagrań do backendu.
+2. `http://localhost/*` oraz `http://127.0.0.1/*` - lokalne testy integracyjne z backendem podczas developmentu.
+3. `https://sentry.eengine.pl/*` - opcjonalna diagnostyka błędów, jeśli build zawiera DSN Sentry.
 
 ## Szybki start
 
@@ -247,8 +248,9 @@ Są już zadeklarowane w `package.json`:
 3. `offscreen` - tworzenie dokumentu offscreen dla logiki nagrywania i uploadu działającej w tle.
 4. `storage` - zapis tymczasowych wskazówek o stanie nagrywania/uploadu, wyboru mikrofonu oraz długotrwałego tokenu Meet2Note.
 5. `host_permissions` dla `https://meet2note.com/*` - flow połączenia konta, wymiana jednorazowego kodu i upload nagrań do backendu.
-6. `host_permissions` dla `https://sentry.eengine.pl/*` - wysyłka zdarzeń diagnostycznych do Sentry, gdy build zawiera DSN.
-7. `content_scripts` dla `https://meet.google.com/*` - content script wykrywa wejście i wyjście ze spotkania, żeby pokazać stan `RDY` i automatycznie zatrzymać nagrywanie po opuszczeniu spotkania.
+6. `host_permissions` dla `http://localhost/*` oraz `http://127.0.0.1/*` - lokalne endpointy developerskie używane podczas testów integracji i uploadu poza docelowym środowiskiem `https://meet2note.com`.
+7. `host_permissions` dla `https://sentry.eengine.pl/*` - wysyłka zdarzeń diagnostycznych do Sentry, gdy build zawiera DSN.
+8. `content_scripts` dla `https://meet.google.com/*` - content script wykrywa wejście i wyjście ze spotkania, żeby pokazać stan `RDY` i automatycznie zatrzymać nagrywanie po opuszczeniu spotkania.
 
 ## Rozwiązywanie problemów / FAQ
 

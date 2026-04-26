@@ -103,6 +103,10 @@ function generateState(): string {
   return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
+function normalizeStoredToken(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 export async function getMeet2NoteConnection(): Promise<Meet2NoteConnection> {
   const items = await storageGet<StoredConnection>([
     MEET2NOTE_EXTENSION_TOKEN_KEY,
@@ -110,9 +114,7 @@ export async function getMeet2NoteConnection(): Promise<Meet2NoteConnection> {
     MEET2NOTE_CONNECTED_AT_KEY,
     MEET2NOTE_AUTH_ERROR_KEY
   ])
-  const token = typeof items.meet2noteExtensionToken === 'string'
-    ? items.meet2noteExtensionToken
-    : ''
+  const token = normalizeStoredToken(items.meet2noteExtensionToken)
 
   return {
     connected: token.length > 0,
@@ -124,9 +126,7 @@ export async function getMeet2NoteConnection(): Promise<Meet2NoteConnection> {
 
 export async function getMeet2NoteExtensionToken(): Promise<string | null> {
   const items = await storageGet<StoredConnection>([MEET2NOTE_EXTENSION_TOKEN_KEY])
-  const token = typeof items.meet2noteExtensionToken === 'string'
-    ? items.meet2noteExtensionToken
-    : ''
+  const token = normalizeStoredToken(items.meet2noteExtensionToken)
   return token || null
 }
 
@@ -222,7 +222,7 @@ function parseTokenResponse(data: ExtensionTokenResponse): {
 
 async function fetchTokenExchange(code: string): Promise<Response> {
   const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), TOKEN_EXCHANGE_TIMEOUT_MS)
+  const timeoutId = setTimeout(() => controller.abort(), TOKEN_EXCHANGE_TIMEOUT_MS)
 
   try {
     return await fetch(makeMeet2NoteUrl('/api/extension/token'), {
@@ -237,7 +237,7 @@ async function fetchTokenExchange(code: string): Promise<Response> {
     }
     throw error
   } finally {
-    window.clearTimeout(timeoutId)
+    clearTimeout(timeoutId)
   }
 }
 

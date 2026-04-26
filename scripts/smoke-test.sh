@@ -36,6 +36,11 @@ function assertArrayIncludesAll(arrayValue, requiredValues, fieldName) {
 
 assertArrayIncludesAll(manifest.host_permissions, requiredOrigins, 'host_permissions')
 
+if (!Array.isArray(manifest.web_accessible_resources)) {
+  console.error('dist/manifest.json is missing web_accessible_resources array')
+  process.exit(1)
+}
+
 const callbackResource = manifest.web_accessible_resources.find((entry) =>
   Array.isArray(entry.resources) && entry.resources.includes('connect-callback.html')
 )
