@@ -1,6 +1,6 @@
 // src/background.ts
 
-import { captureException, captureMessage, initDiagnostics } from './diagnostics'
+import { captureException, initDiagnostics } from './diagnostics'
 import { clearMicPreferences, getMicPreferences, type MicPreferences } from './micPreferences'
 
 initDiagnostics('background')
@@ -8,10 +8,21 @@ initDiagnostics('background')
 let offscreenPort: chrome.runtime.Port | null = null
 let offscreenReady = false
 let lastKnownRecording = false
+let recordingStarting = false
+let recordingStartingTabId: number | null = null
+let recordingStartRequestedAt: number | null = null
+let recordingStopping = false
 let currentRecordingTabId: number | null = null
 let autoStopMeetTabId: number | null = null
 let recordingStartedAt: number | null = null
 const meetTabsInMeeting = new Set<number>()
+
+type UploadStatus = 'idle' | 'uploading' | 'upload_retrying' | 'uploaded'
+
+let currentUploadStatus: UploadStatus = 'idle'
+let currentUploadError: string | null = null
+let currentUploadNextRetryAt: number | null = null
+let currentUploadedRecordingId: string | null = null
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 function bglog(...a: any[]) { console.log('[background]', ...a) }
@@ -26,13 +37,95 @@ function setMeetReadyBadge(tabId: number, ready: boolean) {
   chrome.action.setBadgeText({ tabId, text: ready ? 'RDY' : '' }).catch?.(() => {})
 }
 
+function clearRecordingAfterConfirmedStop(stoppedTabId: number | null): void {
+  lastKnownRecording = false
+  recordingStopping = false
+  setBadge(false, stoppedTabId)
+  currentRecordingTabId = null
+  autoStopMeetTabId = null
+  recordingStartedAt = null
+  persistRecordingState(false, null)
+
+  if (typeof stoppedTabId === 'number' && meetTabsInMeeting.has(stoppedTabId)) {
+    setMeetReadyBadge(stoppedTabId, true)
+  }
+}
+
 function persistRecordingState(recording: boolean, startedAt: number | null): void {
   try {
     void (chrome.storage as any)?.session?.set?.({
       recording,
-      recordingStartedAt: startedAt
+      recordingStartedAt: startedAt,
+      recordingStarting,
+      recordingStartingTabId,
+      recordingStartRequestedAt,
+      recordingStopping
     })?.catch?.(() => {})
   } catch {}
+}
+
+function broadcastRecordingState(extra?: Record<string, unknown>): void {
+  chrome.runtime.sendMessage({
+    type: 'RECORDING_STATE',
+    recording: lastKnownRecording,
+    recordingStartedAt,
+    starting: recordingStarting,
+    startingTabId: recordingStartingTabId,
+    startRequestedAt: recordingStartRequestedAt,
+    stopping: recordingStopping,
+    ...extra
+  }).catch(() => {})
+}
+
+function setRecordingStarting(starting: boolean, tabId: number | null = null): void {
+  recordingStarting = starting
+  recordingStartingTabId = starting ? tabId : null
+  recordingStartRequestedAt = starting ? Date.now() : null
+  persistRecordingState(lastKnownRecording, recordingStartedAt)
+  broadcastRecordingState()
+}
+
+function setRecordingStopping(stopping: boolean): void {
+  recordingStopping = stopping
+  persistRecordingState(lastKnownRecording, recordingStartedAt)
+  broadcastRecordingState()
+}
+
+function persistUploadState(): void {
+  try {
+    void (chrome.storage as any)?.session?.set?.({
+      uploadStatus: currentUploadStatus,
+      uploadError: currentUploadError,
+      uploadNextRetryAt: currentUploadNextRetryAt,
+      uploadedRecordingId: currentUploadedRecordingId
+    })?.catch?.(() => {})
+  } catch {}
+}
+
+function setUploadState(
+  status: UploadStatus,
+  extra?: {
+    error?: string | null
+    nextRetryAt?: number | null
+    recordingId?: string | null
+  }
+): void {
+  currentUploadStatus = status
+  currentUploadError = extra?.error ?? null
+  currentUploadNextRetryAt = extra?.nextRetryAt ?? null
+  currentUploadedRecordingId = extra?.recordingId ?? (status === 'uploaded' ? currentUploadedRecordingId : null)
+  persistUploadState()
+  chrome.runtime.sendMessage({
+    type: 'UPLOAD_STATE',
+    status: currentUploadStatus,
+    error: currentUploadError,
+    nextRetryAt: currentUploadNextRetryAt,
+    recordingId: currentUploadedRecordingId
+  }).catch(() => {})
+}
+
+function isUploadBlockingNewRecording(): boolean {
+  return currentUploadStatus === 'uploading' || currentUploadStatus === 'upload_retrying'
 }
 
 async function getMicPreferencesForOffscreen(): Promise<MicPreferences> {
@@ -96,10 +189,15 @@ async function resetOffscreen(): Promise<void> {
   offscreenPort = null
   offscreenReady = false
   lastKnownRecording = false
+  recordingStarting = false
+  recordingStartingTabId = null
+  recordingStartRequestedAt = null
+  recordingStopping = false
   currentRecordingTabId = null
   autoStopMeetTabId = null
   recordingStartedAt = null
   persistRecordingState(false, null)
+  setUploadState('idle')
   setBadge(false)
 
   try {
@@ -126,45 +224,40 @@ chrome.runtime.onConnect.addListener((port) => {
     }
 
     if (msg?.type === 'RECORDING_STATE') {
+      const stateTabId = currentRecordingTabId
       lastKnownRecording = !!msg.recording
+      const incomingStartedAt = typeof msg.recordingStartedAt === 'number' ? msg.recordingStartedAt : null
+      if (lastKnownRecording) {
+        recordingStarting = false
+        recordingStartingTabId = null
+        recordingStartRequestedAt = null
+      }
+      if (lastKnownRecording && incomingStartedAt) recordingStartedAt = incomingStartedAt
       if (lastKnownRecording && !recordingStartedAt) recordingStartedAt = Date.now()
-      if (!lastKnownRecording) recordingStartedAt = null
+      if (!lastKnownRecording) {
+        recordingStartedAt = null
+        recordingStopping = false
+      }
       persistRecordingState(lastKnownRecording, recordingStartedAt)
       setBadge(lastKnownRecording, currentRecordingTabId)
-      chrome.runtime.sendMessage({
-        type: 'RECORDING_STATE',
-        recording: lastKnownRecording,
-        recordingStartedAt
-      }).catch(() => {})
+      if (!lastKnownRecording && typeof stateTabId === 'number' && meetTabsInMeeting.has(stateTabId)) {
+        setMeetReadyBadge(stateTabId, true)
+      }
+      broadcastRecordingState()
       if (!lastKnownRecording) {
         currentRecordingTabId = null
         autoStopMeetTabId = null
       }
     }
 
-    if (msg?.type === 'OFFSCREEN_SAVE') {
-      const filename =
-        (typeof msg.filename === 'string' && msg.filename.trim())
-          ? msg.filename
-          : `google-meet-recording-${Date.now()}.webm`
-
-      if (msg.blobUrl) {
-        bglog('Saving OFFSCREEN_SAVE via blobUrl', filename)
-        chrome.downloads.download({ url: msg.blobUrl, filename, saveAs: true }, () => {
-          if (chrome.runtime.lastError) {
-            bglog('downloads.download error:', chrome.runtime.lastError.message)
-            captureMessage('downloads.download error', 'error', {
-              operation: 'OFFSCREEN_SAVE',
-              error: chrome.runtime.lastError.message
-            })
-          } else {
-            chrome.runtime.sendMessage({ type: 'RECORDING_SAVED', filename }).catch(() => {})
-          }
-          setTimeout(() => {
-            try { offscreenPort?.postMessage({ type: 'REVOKE_BLOB_URL', blobUrl: msg.blobUrl }) } catch {}
-          }, 10_000)
+    if (msg?.type === 'UPLOAD_STATE') {
+      const status = typeof msg.status === 'string' ? msg.status as UploadStatus : 'idle'
+      if (status === 'uploading' || status === 'upload_retrying' || status === 'uploaded' || status === 'idle') {
+        setUploadState(status, {
+          error: typeof msg.error === 'string' ? msg.error : null,
+          nextRetryAt: typeof msg.nextRetryAt === 'number' ? msg.nextRetryAt : null,
+          recordingId: typeof msg.recordingId === 'string' ? msg.recordingId : null
         })
-        return
       }
     }
   })
@@ -174,10 +267,17 @@ chrome.runtime.onConnect.addListener((port) => {
     offscreenPort = null
     offscreenReady = false
     lastKnownRecording = false
+    recordingStarting = false
+    recordingStartingTabId = null
+    recordingStartRequestedAt = null
+    recordingStopping = false
     currentRecordingTabId = null
     autoStopMeetTabId = null
     recordingStartedAt = null
     persistRecordingState(false, null)
+    if (currentUploadStatus !== 'uploading' && currentUploadStatus !== 'upload_retrying') {
+      setUploadState('idle')
+    }
     setBadge(false)
   })
 })
@@ -233,18 +333,34 @@ function getStreamIdForTab(tabId: number): Promise<string> {
 
 async function stopRecording(reason: string): Promise<any> {
   bglog('Stopping recording:', reason)
+  const stoppedTabId = currentRecordingTabId
+  recordingStarting = false
+  recordingStartingTabId = null
+  recordingStartRequestedAt = null
+  setRecordingStopping(true)
   await ensureOffscreen()
   let response: any = { ok: true }
   if (offscreenPort) {
-    response = await postToOffscreen({ type: 'OFFSCREEN_STOP', reason })
-    bglog('postToOffscreen(OFFSCREEN_STOP) response', response)
+    try {
+      response = await postToOffscreen({ type: 'OFFSCREEN_STOP', reason })
+      bglog('postToOffscreen(OFFSCREEN_STOP) response', response)
+    } catch (e: any) {
+      if (`${e?.message || e}`.includes('Offscreen response timeout')) {
+        bglog('OFFSCREEN_STOP timed out; waiting for async state update', e)
+        captureException(e, { operation: 'STOP_RECORDING.timeout' })
+        return { ok: true, warning: 'STOP_TIMEOUT_WAITING_FOR_STATE' }
+      }
+      setRecordingStopping(false)
+      throw e
+    }
   }
-  lastKnownRecording = false
-  setBadge(false, currentRecordingTabId)
-  currentRecordingTabId = null
-  autoStopMeetTabId = null
-  recordingStartedAt = null
-  persistRecordingState(false, null)
+
+  if (response?.ok === false) {
+    setRecordingStopping(false)
+    throw new Error(response.error || 'OFFSCREEN_STOP failed')
+  }
+
+  clearRecordingAfterConfirmedStop(stoppedTabId)
   return response
 }
 
@@ -285,7 +401,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === 'START_RECORDING') {
       const tabId: number | undefined = msg.tabId
       if (typeof tabId !== 'number') { sendResponse({ ok: false, error: 'Missing tabId' }); return }
+      if (recordingStarting || recordingStopping) {
+        sendResponse({
+          ok: true,
+          starting: recordingStarting,
+          stopping: recordingStopping,
+          startRequestedAt: recordingStartRequestedAt
+        })
+        return
+      }
+      if (lastKnownRecording) {
+        sendResponse({ ok: true, recording: true, recordingStartedAt })
+        return
+      }
+      if (isUploadBlockingNewRecording()) {
+        sendResponse({ ok: false, error: 'Upload is still in progress' })
+        return
+      }
       bglog('Popup requested START_RECORDING for tabId', tabId)
+      setRecordingStarting(true, tabId)
 
       try {
         const start = async () => {
@@ -294,7 +428,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
           const streamId = await getStreamIdForTab(tabId)
           const micPreferences = await getMicPreferencesForOffscreen()
-          const r = await postToOffscreen({ type: 'OFFSCREEN_START', streamId, micPreferences })
+          const tab = await chrome.tabs.get(tabId).catch(() => null)
+          setUploadState('idle')
+          const r = await postToOffscreen({
+            type: 'OFFSCREEN_START',
+            streamId,
+            micPreferences,
+            recordingContext: {
+              tabUrl: tab?.url || null,
+              tabTitle: tab?.title || null
+            }
+          })
           bglog('postToOffscreen(OFFSCREEN_START) response', r)
           return r
         }
@@ -320,6 +464,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
         if (r?.ok) {
           lastKnownRecording = true
+          recordingStarting = false
+          recordingStartingTabId = null
+          recordingStartRequestedAt = null
           currentRecordingTabId = tabId
           autoStopMeetTabId = meetTabsInMeeting.has(tabId)
             ? (typeof msg.autoStopMeetTabId === 'number' ? msg.autoStopMeetTabId : tabId)
@@ -327,20 +474,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           if (!recordingStartedAt) recordingStartedAt = Date.now()
           persistRecordingState(true, recordingStartedAt)
           setBadge(true, tabId)
-          chrome.runtime.sendMessage({
-            type: 'RECORDING_STATE',
-            recording: true,
-            recordingStartedAt,
-            warning: r.warning
-          }).catch(() => {})
+          broadcastRecordingState({ warning: r.warning })
           sendResponse({ ok: true, micIncluded: r.micIncluded, warning: r.warning, recordingStartedAt })
         } else {
+          setRecordingStarting(false)
           sendResponse({ ok: false, error: r?.error || 'Failed to start' })
         }
       } catch (e: any) {
         bglog('OFFSCREEN_START failed', e)
         captureException(e, { operation: 'START_RECORDING' })
         await resetOffscreen()
+        setRecordingStarting(false)
         sendResponse({ ok: false, error: `OFFSCREEN_START failed: ${e?.message || e}` })
       }
       return
@@ -348,8 +492,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
     if (msg?.type === 'STOP_RECORDING') {
       try {
-        await stopRecording('USER_STOP')
-        sendResponse({ ok: true })
+        const response = await stopRecording('USER_STOP')
+        if (response?.ok === false) {
+          sendResponse({ ok: false, error: response.error || 'Failed to stop' })
+          return
+        }
+        sendResponse({
+          ok: true,
+          warning: typeof response?.warning === 'string' ? response.warning : undefined
+        })
       } catch (e: any) {
         captureException(e, { operation: 'STOP_RECORDING' })
         sendResponse({ ok: false, error: `STOP failed: ${e?.message || e}` })
@@ -358,16 +509,53 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 
     if (msg?.type === 'GET_RECORDING_STATUS') {
-      if (!lastKnownRecording) {
-        try {
-          const sessionState = await (chrome.storage as any)?.session?.get?.(['recording', 'recordingStartedAt'])
-          lastKnownRecording = !!sessionState?.recording
-          recordingStartedAt = typeof sessionState?.recordingStartedAt === 'number'
-            ? sessionState.recordingStartedAt
-            : null
-        } catch {}
-      }
-      sendResponse({ recording: lastKnownRecording, recordingStartedAt })
+      try {
+        const sessionState = await (chrome.storage as any)?.session?.get?.([
+          'recording',
+          'recordingStartedAt',
+          'recordingStarting',
+          'recordingStartingTabId',
+          'recordingStartRequestedAt',
+          'recordingStopping',
+          'uploadStatus',
+          'uploadError',
+          'uploadNextRetryAt',
+          'uploadedRecordingId'
+        ])
+        lastKnownRecording = !!sessionState?.recording
+        recordingStartedAt = typeof sessionState?.recordingStartedAt === 'number'
+          ? sessionState.recordingStartedAt
+          : null
+        recordingStarting = !!sessionState?.recordingStarting
+        recordingStartingTabId = typeof sessionState?.recordingStartingTabId === 'number'
+          ? sessionState.recordingStartingTabId
+          : null
+        recordingStartRequestedAt = typeof sessionState?.recordingStartRequestedAt === 'number'
+          ? sessionState.recordingStartRequestedAt
+          : null
+        recordingStopping = !!sessionState?.recordingStopping
+        if (sessionState?.uploadStatus === 'uploading' ||
+            sessionState?.uploadStatus === 'upload_retrying' ||
+            sessionState?.uploadStatus === 'uploaded' ||
+            sessionState?.uploadStatus === 'idle') {
+          currentUploadStatus = sessionState.uploadStatus
+        }
+        currentUploadError = typeof sessionState?.uploadError === 'string' ? sessionState.uploadError : null
+        currentUploadNextRetryAt = typeof sessionState?.uploadNextRetryAt === 'number' ? sessionState.uploadNextRetryAt : null
+        currentUploadedRecordingId = typeof sessionState?.uploadedRecordingId === 'string' ? sessionState.uploadedRecordingId : null
+      } catch {}
+      sendResponse({
+        recording: lastKnownRecording,
+        recordingStartedAt,
+        starting: recordingStarting,
+        startingTabId: recordingStartingTabId,
+        startRequestedAt: recordingStartRequestedAt,
+        stopping: recordingStopping,
+        uploadStatus: currentUploadStatus,
+        uploadError: currentUploadError,
+        uploadNextRetryAt: currentUploadNextRetryAt,
+        uploadedRecordingId: currentUploadedRecordingId
+      })
       return
     }
 

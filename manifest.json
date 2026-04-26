@@ -1,9 +1,9 @@
 {
     "manifest_version": 3,
     "name": "Google Meet Recorder",
-    "version": "1.5.2",
-    "permissions": ["activeTab", "downloads", "tabCapture", "offscreen", "storage", "tabs", "desktopCapture"],
-    "host_permissions": ["https://sentry.eengine.pl/*"],
+    "version": "1.6.4",
+    "permissions": ["activeTab", "tabCapture", "offscreen", "storage", "tabs", "desktopCapture"],
+    "host_permissions": ["https://sentry.eengine.pl/*", "https://meet2note.com/*"],
     "action": { "default_popup": "popup.html" },
     "background": { "service_worker": "background.js", "type": "module" },
     "content_scripts": [

@@ -32,7 +32,8 @@ module.exports = {
     new webpack.DefinePlugin({
       __SENTRY_DSN__: JSON.stringify(process.env.SENTRY_DSN || ''),
       __SENTRY_ENVIRONMENT__: JSON.stringify(process.env.SENTRY_ENVIRONMENT || 'chrome-extension-dev'),
-      __EXTENSION_VERSION__: JSON.stringify(manifest.version)
+      __EXTENSION_VERSION__: JSON.stringify(manifest.version),
+      __UPLOAD_API_BASE_URL__: JSON.stringify(process.env.UPLOAD_API_BASE_URL || 'https://meet2note.com')
     }),
     new CleanWebpackPlugin(),
     new CopyWebpackPlugin({

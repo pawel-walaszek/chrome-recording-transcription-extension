@@ -45,6 +45,14 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Runbooki trzymaj w `docs/runbooks/` tylko dla powtarzalnych procedur.
 - Unikaj semantycznych duplikatow miedzy `AGENTS.md`, `README.md` i dokumentacja.
 
+## Doprecyzowywanie specyfikacji
+
+1. Przy pracy nad specyfikacja end-to-end najpierw samodzielnie rozstrzygaj niejednoznacznosci, ktore wynikaja z architektury, historii ustalen albo istniejacego kodu.
+2. Pytaj czlowieka tylko o decyzje, ktorych nie da sie bezpiecznie wywnioskowac z kontekstu.
+3. Pytania zadawaj pojedynczo, nigdy seria.
+4. Przy kazdym pytaniu podawaj licznik w formacie `Pytanie X z Y`, zeby bylo jasne, ile decyzji zostalo.
+5. Po odpowiedzi czlowieka zapisz decyzje w specyfikacji i powiazanych issue, jesli istnieja.
+
 ## GitHub i proces pracy
 
 - Glowne repozytorium ustalaj z `git remote -v`.
@@ -60,6 +68,9 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
    b) GitHub: `pawel-walaszek/recording-backend`.
 
 2. Backend jest docelowym server-side dla uploadu, przetwarzania, transkrypcji i udostepniania nagran z tej wtyczki.
+   a) Aktualny backend jest aplikacja Node.js/TypeScript oparta o NestJS + Fastify.
+   b) Webowe GUI backendu jest aplikacja React + Vite + Ant Design.
+   c) Repo backendu uzywa pnpm workspaces oraz `docker compose up -d` jako podstawowego sposobu uruchamiania.
 
 3. Przy zmianach dotyczacych uploadu, formatu plikow, metadanych nagrania, autoryzacji, API albo przyszlego MCP:
    a) sprawdz repo backendu,
@@ -67,7 +78,27 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
    c) zaktualizuj dokumentacje po obu stronach,
    d) uruchom dostepne walidacje albo opisz, czego nie dalo sie sprawdzic.
 
-4. Zrodlem prawdy kontraktu integracyjnego ma byc `docs/contracts/recording-upload.openapi.yml` w repo backendu, gdy plik zostanie utworzony.
+4. Zrodlem ustalen integracyjnych sa specyfikacje i issue cross-repo oraz realne zachowanie API backendu.
+   a) Jesli backend wybierze konkretna forme dokumentowania API, dopiero wtedy linkuj ja jako referencje.
+
+5. Docelowy endpoint dla uploadu z rozszerzenia to `https://meet2note.com`.
+   a) Na obecnym etapie traktuj `https://meet2note.com` jako srodowisko deweloperskie/prod-like, mimo ze domena wyglada produkcyjnie.
+   b) Lokalny backend nadal moze dzialac pod `http://localhost:3000`.
+   c) Nie hardcoduj sekretow ani tokenow; upload uzywa tokenu zwracanego przez backend po inicjalizacji uploadu.
+   d) Po wdrozeniu uploadu nie pobieraj automatycznie lokalnego pliku `.webm`; upload ma zastapic lokalny zapis.
+
+6. Obecny kontrakt uploadu:
+   a) `POST /api/upload/init` tworzy sesje uploadu i zwraca `recordingId`, `uploadToken` oraz `expiresAt`.
+   b) `PUT /api/upload/{recordingId}/video` wysyla asset `video_audio` jako `application/octet-stream` z naglowkiem `X-Upload-Token`.
+   c) `PUT /api/upload/{recordingId}/microphone` wysyla opcjonalny asset mikrofonu jako `application/octet-stream` z naglowkiem `X-Upload-Token`.
+   d) `POST /api/upload/{recordingId}/complete` konczy upload z naglowkiem `X-Upload-Token`.
+
+## Komunikacja cross-repo
+
+1. Jesli zmiana w tym repozytorium wymaga pracy po stronie `recording-backend`, utworz issue w repozytorium backendu z konkretnym zakresem, kontekstem i kryteriami akceptacji.
+2. Jesli zmiana w `recording-backend` wymaga pracy po stronie tej wtyczki, oczekiwanym miejscem przekazania pracy jest issue w tym repozytorium.
+3. W issue linkuj odpowiednia specyfikacje, kontrakt albo PR, jesli istnieje.
+4. Nie zakladaj, ze ustalenia z rozmowy sa wystarczajaca dokumentacja zaleznosci miedzy projektami.
 
 ## Skrot `+PR`
 
