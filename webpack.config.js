@@ -10,6 +10,7 @@ module.exports = {
   entry: {
     popup: './src/popup.tsx',
     background: './src/background.ts',
+    connectCallback: './src/connectCallback.ts',
     offscreen: './src/offscreen.ts',
     micsetup: './src/micsetup.tsx',
     meetWatcher: './src/meetWatcher.ts',
@@ -39,6 +40,7 @@ module.exports = {
     new CopyWebpackPlugin({
       patterns: [
         { from: 'manifest.json',  to: 'manifest.json' },
+        { from: 'connect-callback.html', to: 'connect-callback.html' },
         { from: 'popup.html',     to: 'popup.html' },
         { from: 'offscreen.html', to: 'offscreen.html', noErrorOnMissing: true },
         { from: 'micsetup.html', to: 'micsetup.html' },

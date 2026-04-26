@@ -84,14 +84,17 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 5. Docelowy endpoint dla uploadu z rozszerzenia to `https://meet2note.com`.
    a) Na obecnym etapie traktuj `https://meet2note.com` jako srodowisko deweloperskie/prod-like, mimo ze domena wyglada produkcyjnie.
    b) Lokalny backend nadal moze dzialac pod `http://localhost:3000`.
-   c) Nie hardcoduj sekretow ani tokenow; upload uzywa tokenu zwracanego przez backend po inicjalizacji uploadu.
+   c) Nie hardcoduj sekretow ani tokenow; dlugotrwaly `extensionToken` jest zapisywany lokalnie po flow `Connect to Meet2Note`.
    d) Po wdrozeniu uploadu nie pobieraj automatycznie lokalnego pliku `.webm`; upload ma zastapic lokalny zapis.
 
-6. Obecny kontrakt uploadu:
-   a) `POST /api/upload/init` tworzy sesje uploadu i zwraca `recordingId`, `uploadToken` oraz `expiresAt`.
-   b) `PUT /api/upload/{recordingId}/video` wysyla asset `video_audio` jako `application/octet-stream` z naglowkiem `X-Upload-Token`.
-   c) `PUT /api/upload/{recordingId}/microphone` wysyla opcjonalny asset mikrofonu jako `application/octet-stream` z naglowkiem `X-Upload-Token`.
-   d) `POST /api/upload/{recordingId}/complete` konczy upload z naglowkiem `X-Upload-Token`.
+6. Obecny kontrakt polaczenia i uploadu:
+   a) `GET /extension/connect` uruchamia backendowy flow polaczenia wtyczki z kontem Meet2Note.
+   b) `POST /api/extension/token` wymienia jednorazowy `code` na dlugotrwaly `extensionToken`.
+   c) `POST /api/upload/init` wymaga `Authorization: Bearer <extensionToken>`, tworzy sesje uploadu i zwraca `recordingId`, `uploadToken` oraz `expiresAt`.
+   d) `PUT /api/upload/{recordingId}/video` wysyla asset `video_audio` jako `application/octet-stream` z naglowkami `Authorization` i `X-Upload-Token`.
+   e) `PUT /api/upload/{recordingId}/microphone` wysyla opcjonalny asset mikrofonu jako `application/octet-stream` z naglowkami `Authorization` i `X-Upload-Token`.
+   f) `POST /api/upload/{recordingId}/complete` konczy upload z naglowkami `Authorization` i `X-Upload-Token`.
+   g) Przy `401` albo `403` nie ponawiaj zwyklego uploadu bez konca; wyczysc token i pokaz koniecznosc ponownego polaczenia z Meet2Note.
 
 ## Komunikacja cross-repo
 

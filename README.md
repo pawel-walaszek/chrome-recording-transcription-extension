@@ -17,6 +17,8 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 **Upload do backendu** - wysyła `video_audio` i opcjonalny `microphone` do `https://meet2note.com`.
 
+**Połączenie z kontem Meet2Note** - popup otwiera flow `Connect to Meet2Note`, zapisuje długotrwały token w `chrome.storage.local` i używa go przy uploadzie.
+
 **Retry uploadu** - jeśli upload się nie powiedzie, ponawia próbę co 15 sekund aż do sukcesu, bez lokalnego pobierania pliku.
 
 **Architektura MV3/Offscreen** - nagrywanie działa w ukrytym dokumencie offscreen.
@@ -25,9 +27,11 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 1. Popup pozwala przygotować mikrofon oraz sterować nagrywaniem.
 
-2. Service worker w tle tworzy i koordynuje dokument offscreen oraz pobiera właściwy `streamId` przechwytywania dla aktywnej karty.
+2. Popup pozwala połączyć rozszerzenie z kontem Meet2Note przez backendowy flow i stronę callbacku `connect-callback.html`.
 
-3. Strona offscreen przechwytuje kartę, nagrywa osobny asset mikrofonu, finalizuje bloby i wysyła je do backendu.
+3. Service worker w tle tworzy i koordynuje dokument offscreen oraz pobiera właściwy `streamId` przechwytywania dla aktywnej karty.
+
+4. Strona offscreen przechwytuje kartę, nagrywa osobny asset mikrofonu, finalizuje bloby i wysyła je do backendu z tokenem użytkownika.
 
 ## Wymagania
 
@@ -78,8 +82,9 @@ Przy zmianach widocznych w przeglądarce wykonaj też test dymny z [`docs/runboo
 
 
 Otwórz Google Meet i kliknij ikonę rozszerzenia:
-1. **Enable Microphone / Microphone Settings** - otwiera konfigurację mikrofonu i pozwala wybrać urządzenie wejściowe.
-2. **Start Recording / Stop & Upload** - nagrywa kartę i wysyła wynik do `https://meet2note.com`.
+1. **Connect to Meet2Note** - otwiera backendowy flow połączenia z kontem użytkownika.
+2. **Enable Microphone / Microphone Settings** - otwiera konfigurację mikrofonu i pozwala wybrać urządzenie wejściowe.
+3. **Start Recording / Stop & Upload** - nagrywa kartę i wysyła wynik do `https://meet2note.com`.
 
 ## Instalacja i budowanie
 
@@ -122,9 +127,11 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
    a) Jest jeden przycisk konfiguracji mikrofonu: przy pierwszym użyciu ma etykietę **Enable Microphone**, otwiera stronę konfiguracji i prosi o dostęp do mikrofonu.
    b) Po nadaniu uprawnienia ten sam przycisk zmienia etykietę na **Microphone Settings** i pozwala później zmienić mikrofon.
    c) Na stronie konfiguracji wybierz `Default microphone` albo konkretne urządzenie wejściowe i kliknij `Save Microphone`.
-   d) **Start Recording** rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest dostępny, zostanie nagrany jako osobny asset.
-   e) Podczas nagrywania ten sam przycisk zmienia się na **Stop & Upload**, finalizuje nagranie i wysyła assety do `https://meet2note.com`.
-   f) Status pod przyciskami pokazuje, czy nagrywanie trwa, czy trwa upload oraz kiedy nastąpi kolejna próba retry.
+   d) Jeśli popup pokazuje `Not connected`, kliknij **Connect to Meet2Note** i przejdź przez flow logowania/połączenia w backendzie.
+   e) Po połączeniu popup pokazuje konto Meet2Note, a token użytkownika jest zapisany w `chrome.storage.local`.
+   f) **Start Recording** rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest dostępny, zostanie nagrany jako osobny asset.
+   g) Podczas nagrywania ten sam przycisk zmienia się na **Stop & Upload**, finalizuje nagranie i wysyła assety do `https://meet2note.com`.
+   h) Status pod przyciskami pokazuje, czy nagrywanie trwa, czy trwa upload oraz kiedy nastąpi kolejna próba retry.
 
 > Na aktywnym spotkaniu Google Meet rozszerzenie pokazuje znacznik `RDY`, a podczas nagrywania `REC`. Jeśli nagranie zostało rozpoczęte na karcie Meet, wyjście ze spotkania automatycznie zatrzymuje nagrywanie i uruchamia upload do backendu. Rozszerzenie nie zapisuje nagrań lokalnie przez Chrome Downloads API.
 
@@ -138,6 +145,7 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 ├─ compose.yml
 ├─ Makefile
 ├─ popup.html
+├─ connect-callback.html
 ├─ offscreen.html
 ├─ micsetup.html
 ├─ .github/             # szablony GitHub, instrukcje Copilota i CI
@@ -145,6 +153,8 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 ├─ scripts/             # lokalne skrypty pomocnicze
 ├─ src/
 │  ├─ background.ts     # service worker MV3: tworzy offscreen i koordynuje strumienie
+│  ├─ connectCallback.ts # callback flow połączenia Meet2Note
+│  ├─ extensionAuth.ts  # token użytkownika, state flow połączenia i storage
 │  ├─ offscreen.ts      # uruchamia nagrywarkę i wysyła assety do backendu
 │  ├─ popup.tsx         # UI popupu w React + Ant Design: mikrofon, start/stop
 │  ├─ micPreferences.ts # wspólne helpery zapisu wyboru mikrofonu
@@ -163,7 +173,8 @@ const WANT_MIC_ASSET = true
 
 2. Backend uploadu
   a) Domyślny URL: `https://meet2note.com`.
-  b) Możesz go zmienić przy buildzie:
+  b) Ten sam URL jest używany dla flow `Connect to Meet2Note`, callbacku wymiany kodu i uploadu.
+  c) Możesz go zmienić przy buildzie:
 
 ```
 UPLOAD_API_BASE_URL=http://localhost:3000 make build
@@ -234,8 +245,8 @@ Są już zadeklarowane w `package.json`:
 1. `activeTab`, `tabs` - odczyt aktywnej karty, potrzebny do wskazania i opisania nagrania.
 2. `tabCapture` / `desktopCapture` - przechwytywanie wideo i audio z bieżącej karty.
 3. `offscreen` - tworzenie dokumentu offscreen dla logiki nagrywania i uploadu działającej w tle.
-4. `storage` - zapis tymczasowych wskazówek o stanie nagrywania/uploadu dla synchronizacji UI.
-5. `host_permissions` dla `https://meet2note.com/*` - upload nagrań do backendu.
+4. `storage` - zapis tymczasowych wskazówek o stanie nagrywania/uploadu, wyboru mikrofonu oraz długotrwałego tokenu Meet2Note.
+5. `host_permissions` dla `https://meet2note.com/*` - flow połączenia konta, wymiana jednorazowego kodu i upload nagrań do backendu.
 6. `host_permissions` dla `https://sentry.eengine.pl/*` - wysyłka zdarzeń diagnostycznych do Sentry, gdy build zawiera DSN.
 7. `content_scripts` dla `https://meet.google.com/*` - content script wykrywa wejście i wyjście ze spotkania, żeby pokazać stan `RDY` i automatycznie zatrzymać nagrywanie po opuszczeniu spotkania.
 
@@ -270,6 +281,13 @@ Odpowiedź:
 1. Sprawdź, czy `https://meet2note.com` działa i czy przeglądarka ma połączenie z siecią.
 2. Rozszerzenie ponawia pełną próbę uploadu co 15 sekund aż do sukcesu.
 3. Nie zamykaj przeglądarki ani nie przeładowuj rozszerzenia, bo gotowe bloby są trzymane w pamięci i mogą zostać utracone.
+
+Pytanie: Popup pokazuje `Connect to Meet2Note` albo `Reconnect to Meet2Note`. Co zrobić?
+Odpowiedź:
+1. Kliknij `Connect to Meet2Note`.
+2. Jeśli backend poprosi o logowanie, zaloguj się kontem Google.
+3. Po udanym callbacku wróć do popupu i sprawdź, czy pokazuje połączone konto.
+4. Jeśli backend odrzuci token przy uploadzie, rozszerzenie przerywa zwykły retry i wymaga ponownego połączenia.
 
 Pytanie: Dlaczego przyciski w popupie nie włączają się albo nie wyłączają poprawnie?
 Odpowiedź:

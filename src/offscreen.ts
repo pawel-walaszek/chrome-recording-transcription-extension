@@ -1,6 +1,7 @@
 // src/offscreen.ts
 
 import { captureException, captureMessage, initDiagnostics } from './diagnostics'
+import { isMeet2NoteAuthError, markMeet2NoteReconnectRequired } from './extensionAuth'
 import type { MicPreferences } from './micPreferences'
 import { uploadRecordingOnce, type UploadRecordingInput } from './uploadClient'
 
@@ -55,7 +56,7 @@ function pushState(recording: boolean, extra?: Record<string, any>) {
   getPort().postMessage({ type: 'RECORDING_STATE', recording, recordingStartedAt, ...extra })
 }
 
-type UploadStatus = 'idle' | 'uploading' | 'upload_retrying' | 'uploaded'
+type UploadStatus = 'idle' | 'uploading' | 'upload_retrying' | 'uploaded' | 'auth_required'
 
 function pushUploadState(status: UploadStatus, extra?: Record<string, any>) {
   getPort().postMessage({ type: 'UPLOAD_STATE', status, ...extra })
@@ -397,6 +398,15 @@ async function uploadRecordingUntilSuccess(input: UploadRecordingInput, attempt 
       log('Upload completed', { recordingId: result.recordingId, assets: result.assets, attempt: currentAttempt })
       return
     } catch (e) {
+      if (isMeet2NoteAuthError(e)) {
+        uploadInProgress = false
+        const message = e.message || 'Connect to Meet2Note before uploading.'
+        await markMeet2NoteReconnectRequired(message).catch(() => {})
+        pushUploadState('auth_required', { error: message })
+        log('Upload requires Meet2Note connection', { attempt: currentAttempt })
+        return
+      }
+
       captureException(e, {
         operation: 'uploadRecordingUntilSuccess',
         attempt: currentAttempt,
