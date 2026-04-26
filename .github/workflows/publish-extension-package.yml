@@ -142,19 +142,24 @@ jobs:
           response="$(curl -fsS "${validate_url}")"
           echo "${response}"
 
-          RESPONSE_JSON="${response}" EXPECTED_VERSION="${VERSION}" node <<'EOF'
-          const response = JSON.parse(process.env.RESPONSE_JSON || '{}');
-          const expectedVersion = process.env.EXPECTED_VERSION;
+          RESPONSE_JSON="${response}" EXPECTED_VERSION="${VERSION}" python3 <<'EOF'
+          import json
+          import os
+          import sys
 
-          if (response.available !== true) {
-            console.error('Expected available=true from metadata endpoint');
-            process.exit(1);
-          }
+          response = json.loads(os.environ.get("RESPONSE_JSON", "{}"))
+          expected_version = os.environ.get("EXPECTED_VERSION")
 
-          if (response.version !== expectedVersion) {
-            console.error(`Expected version ${expectedVersion}, got ${response.version}`);
-            process.exit(1);
-          }
+          if response.get("available") is not True:
+              print("Expected available=true from metadata endpoint", file=sys.stderr)
+              sys.exit(1)
+
+          if response.get("version") != expected_version:
+              print(
+                  f"Expected version {expected_version}, got {response.get('version')}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
           EOF
 
           curl -I -fsS "${file_url}"
