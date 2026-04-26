@@ -97,7 +97,7 @@ function scheduleTick(): void {
 }
 
 tick()
-setInterval(scheduleTick, POLL_MS)
+setInterval(tick, POLL_MS)
 
 const observer = new MutationObserver(() => scheduleTick())
 observer.observe(document.documentElement, {
