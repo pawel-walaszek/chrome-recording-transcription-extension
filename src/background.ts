@@ -25,6 +25,8 @@ let currentUploadNextRetryAt: number | null = null
 let currentUploadedRecordingId: string | null = null
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
+const DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS = 15_000
+const STOP_OFFSCREEN_RESPONSE_TIMEOUT_MS = 3_000
 function bglog(...a: any[]) { console.log('[background]', ...a) }
 function setBadge(recording: boolean, tabId?: number | null) {
   const details: chrome.action.BadgeTextDetails = { text: recording ? 'REC' : '' }
@@ -303,7 +305,7 @@ chrome.runtime.onConnect.addListener((port) => {
   })
 })
 
-function postToOffscreen(msg: any): Promise<any> {
+function postToOffscreen(msg: any, timeoutMs = DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS): Promise<any> {
   return new Promise((resolve, reject) => {
     if (!offscreenPort) return reject(new Error('Offscreen port not connected'))
     const port = offscreenPort
@@ -325,7 +327,7 @@ function postToOffscreen(msg: any): Promise<any> {
     timeoutId = setTimeout(() => {
       try { port.onMessage.removeListener(listener) } catch {}
       reject(new Error('Offscreen response timeout'))
-    }, 15000)
+    }, timeoutMs)
   })
 }
 
@@ -363,13 +365,17 @@ async function stopRecording(reason: string): Promise<any> {
   let response: any = { ok: true }
   if (offscreenPort) {
     try {
-      response = await postToOffscreen({ type: 'OFFSCREEN_STOP', reason })
+      response = await postToOffscreen(
+        { type: 'OFFSCREEN_STOP', reason },
+        STOP_OFFSCREEN_RESPONSE_TIMEOUT_MS
+      )
       bglog('postToOffscreen(OFFSCREEN_STOP) response', response)
     } catch (e: any) {
       if (`${e?.message || e}`.includes('Offscreen response timeout')) {
-        bglog('OFFSCREEN_STOP timed out; waiting for async state update', e)
+        bglog('OFFSCREEN_STOP timed out; clearing UI stop state and waiting for async offscreen state if it arrives', e)
         captureException(e, { operation: 'STOP_RECORDING.timeout' })
-        return { ok: true, warning: 'STOP_TIMEOUT_WAITING_FOR_STATE' }
+        clearRecordingAfterConfirmedStop(stoppedTabId)
+        return { ok: true, warning: 'STOP_TIMEOUT_STATE_CLEARED' }
       }
       setRecordingStopping(false)
       throw e

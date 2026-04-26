@@ -13,6 +13,7 @@ initDiagnostics('offscreen')
 const WANT_MIC_ASSET = true
 const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 const UPLOAD_RETRY_INTERVAL_MS = 15_000
+const STOP_FINALIZE_TIMEOUT_MS = 10_000
 
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
@@ -308,6 +309,10 @@ let currentRecordingStartedAtMs: number | null = null
 let currentRecordingContext: RecordingContext | null = null
 let microphoneStoppedPromise: Promise<Blob | null> | null = null
 let resolveMicrophoneStopped: ((blob: Blob | null) => void) | null = null
+let stopRequested = false
+let stopFinalizeTimeoutId: number | null = null
+let currentRecordingId = 0
+const abandonedRecordingIds = new Set<number>()
 
 interface RecordingContext {
   tabUrl?: string | null
@@ -436,6 +441,46 @@ function resolveMicrophoneStop(blob: Blob | null): void {
   if (typeof resolver === 'function') resolver(blob)
 }
 
+function clearStopFinalizeTimeout(): void {
+  if (stopFinalizeTimeoutId !== null) {
+    try { window.clearTimeout(stopFinalizeTimeoutId) } catch {}
+    stopFinalizeTimeoutId = null
+  }
+}
+
+function markStopComplete(): void {
+  clearStopFinalizeTimeout()
+  stopRequested = false
+}
+
+function forceClearStuckRecording(recordingId: number, reason: string, error?: unknown): void {
+  abandonedRecordingIds.add(recordingId)
+  markStopComplete()
+  resolveMicrophoneStop(null)
+  cleanupRecordingResources()
+  mediaRecorder = null
+  microphoneRecorder = null
+  chunks = []
+  microphoneChunks = []
+  capturing = false
+  currentRecordingStartedAtMs = null
+  currentRecordingContext = null
+  microphoneStoppedPromise = Promise.resolve(null)
+  resolveMicrophoneStopped = null
+  pushState(false, { warning: reason })
+  if (error) captureException(error, { operation: 'forceClearStuckRecording', reason })
+}
+
+function armStopFinalizeTimeout(recordingId: number): void {
+  clearStopFinalizeTimeout()
+  stopFinalizeTimeoutId = window.setTimeout(() => {
+    const error = new Error(`Recording stop finalization timed out after ${STOP_FINALIZE_TIMEOUT_MS}ms`)
+    log(error.message)
+    captureException(error, { operation: 'stopRecording.finalizeTimeout' })
+    forceClearStuckRecording(recordingId, 'STOP_FINALIZE_TIMEOUT', error)
+  }, STOP_FINALIZE_TIMEOUT_MS)
+}
+
 async function prepareAndRecord(
   baseStream: MediaStream,
   micPreferences: MicPreferences,
@@ -444,6 +489,10 @@ async function prepareAndRecord(
   trackStream(baseStream)
   currentRecordingStartedAtMs = Date.now()
   currentRecordingContext = recordingContext
+  currentRecordingId += 1
+  const recordingId = currentRecordingId
+  stopRequested = false
+  clearStopFinalizeTimeout()
   const a = baseStream.getAudioTracks()
   const v = baseStream.getVideoTracks()
   log('getUserMedia() tracks:', {
@@ -590,6 +639,10 @@ async function prepareAndRecord(
 
     mediaRecorder!.onstop = async () => {
       try {
+        if (abandonedRecordingIds.has(recordingId)) {
+          log('Skipping upload for abandoned recording', recordingId)
+          return
+        }
         const videoBlob = new Blob(chunks, { type: mime })
         const microphoneBlob = microphoneStoppedPromise ? await microphoneStoppedPromise : null
         log('Finalizing; video chunks =', chunks.length, 'video blob.size =', videoBlob.size, 'microphone blob.size =', microphoneBlob?.size || 0)
@@ -609,6 +662,12 @@ async function prepareAndRecord(
         chunks = []
         microphoneChunks = []
         capturing = false
+        currentRecordingStartedAtMs = null
+        currentRecordingContext = null
+        resolveMicrophoneStopped = null
+        microphoneStoppedPromise = null
+        abandonedRecordingIds.delete(recordingId)
+        markStopComplete()
         pushState(false)
       }
     }
@@ -668,12 +727,34 @@ async function startRecordingFromStreamId(
   }
 }
 
-function stopRecording() {
+function stopRecording(reason = 'manual'): Record<string, unknown> {
+  if (stopRequested) {
+    log('Stop already requested; acknowledging duplicate stop', reason)
+    return { ok: true, alreadyStopping: true }
+  }
+
   if (!mediaRecorder || !capturing) {
     console.warn('[offscreen] Stop called but not recording')
-    throw new Error('Not currently recording')
+    if (uploadInProgress) return { ok: true, alreadyStopping: true }
+    pushState(false)
+    return { ok: true, alreadyStopped: true }
   }
-  try { stopActiveRecorders() } catch (e) { console.error('[offscreen] Stop error', e); captureException(e, { operation: 'stopRecording' }); throw e }
+
+  stopRequested = true
+  const recordingId = currentRecordingId
+  armStopFinalizeTimeout(recordingId)
+
+  window.setTimeout(() => {
+    try {
+      stopActiveRecorders()
+    } catch (e) {
+      console.error('[offscreen] Stop error', e)
+      captureException(e, { operation: 'stopRecording' })
+      forceClearStuckRecording(recordingId, 'STOP_FAILED', e)
+    }
+  }, 0)
+
+  return { ok: true, stopping: true }
 }
 
 // RPC przez port.
@@ -704,7 +785,7 @@ rpcPort.onMessage.addListener(async (msg: any) => {
     }
 
     if (msg?.type === 'OFFSCREEN_STOP') {
-      try { stopRecording(); return respond(msg, { ok: true }) }
+      try { return respond(msg, stopRecording(msg.reason || 'manual')) }
       catch (e) { return respond(msg, { ok: false, error: String(e) }) }
     }
 
