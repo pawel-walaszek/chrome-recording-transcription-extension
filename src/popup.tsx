@@ -33,10 +33,6 @@ interface UploadState {
 const { Text } = Typography
 const START_RECORDING_POPUP_DELAY_MS = 3_000
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => window.setTimeout(resolve, ms))
-}
-
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
   const hours = Math.floor(totalSeconds / 3600)
@@ -285,8 +281,6 @@ function App(): React.ReactElement {
     })
 
     try {
-      await sleep(START_RECORDING_POPUP_DELAY_MS)
-
       if ('permissions' in navigator) {
         try {
           const status = await (navigator as any).permissions.query({ name: 'microphone' })
@@ -338,6 +332,7 @@ function App(): React.ReactElement {
       if (response.warning === 'NO_MIC_AUDIO') {
         alert('Recording started, but microphone audio is unavailable. The file will contain tab audio only.')
       }
+      window.setTimeout(() => window.close(), START_RECORDING_POPUP_DELAY_MS)
     } catch (error: any) {
       console.error('[popup] START_RECORDING error', error)
       captureException(error, { operation: 'START_RECORDING' })
