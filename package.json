@@ -22,5 +22,8 @@
     "keywords": [],
     "author": "",
     "license": "ISC",
-    "description": ""
+    "description": "",
+    "dependencies": {
+        "@sentry/browser": "^10.50.0"
+    }
 }

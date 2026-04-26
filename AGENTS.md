@@ -26,12 +26,14 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Uprawnienia Chrome i `host_permissions` zmieniaj tylko wtedy, gdy wymaga tego funkcjonalnosc, i opisz powod w podsumowaniu.
 - Przy kazdym generowaniu nowej wtyczki podbijaj `version` w `manifest.json`.
 - Przy poprawkach bugow podbijaj ostatnia liczbe wersji, np. `1.1.0` -> `1.1.1`.
+- Zmiany UX, drobne funkcje pomocnicze i male usprawnienia podbijaja patch, nie minor. Minor podbijaj tylko dla znaczacych funkcji albo zmian zachowania o wiekszym zakresie.
 
 ## Weryfikacja
 
 - Po zmianach w kodzie lub konfiguracji uruchom `make check`.
 - Dla zmian dotykajacych przeplywow przegladarkowych wykonaj tez smoke test z `docs/runbooks/002-smoke-test-po-zmianach.md`.
 - Jesli nie da sie uruchomic walidacji, podaj konkretny powod i zakres ryzyka.
+- Jesli poprawiasz blad zgloszony w Sentry, po wdrozeniu poprawki zamknij odpowiednie issue w Sentry jako rozwiazane.
 
 ## Dokumentacja
 
@@ -43,6 +45,14 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Runbooki trzymaj w `docs/runbooks/` tylko dla powtarzalnych procedur.
 - Unikaj semantycznych duplikatow miedzy `AGENTS.md`, `README.md` i dokumentacja.
 
+## Doprecyzowywanie specyfikacji
+
+1. Przy pracy nad specyfikacja end-to-end najpierw samodzielnie rozstrzygaj niejednoznacznosci, ktore wynikaja z architektury, historii ustalen albo istniejacego kodu.
+2. Pytaj czlowieka tylko o decyzje, ktorych nie da sie bezpiecznie wywnioskowac z kontekstu.
+3. Pytania zadawaj pojedynczo, nigdy seria.
+4. Przy kazdym pytaniu podawaj licznik w formacie `Pytanie X z Y`, zeby bylo jasne, ile decyzji zostalo.
+5. Po odpowiedzi czlowieka zapisz decyzje w specyfikacji i powiazanych issue, jesli istnieja.
+
 ## GitHub i proces pracy
 
 - Glowne repozytorium ustalaj z `git remote -v`.
@@ -50,6 +60,45 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Jesli dla operacji istnieje odpowiedni serwer MCP, uzyj go jako pierwszej sciezki pozyskania danych lub wykonania operacji.
 - Commit, push i tworzenie Pull Request wykonuj tylko po wyraznej zgodzie czlowieka.
 - PR powinien zawierac zakres, sposob weryfikacji, ryzyka oraz informacje o zmianach w uprawnieniach Chrome, jesli takie wystapily.
+
+## Powiazane repozytorium backendu
+
+1. Backend dla tej wtyczki znajduje sie w repozytorium `recording-backend`.
+   a) Lokalna sciezka: `/Users/pawel.walaszek/playground/recording-backend`.
+   b) GitHub: `pawel-walaszek/recording-backend`.
+
+2. Backend jest docelowym server-side dla uploadu, przetwarzania, transkrypcji i udostepniania nagran z tej wtyczki.
+   a) Aktualny backend jest aplikacja Node.js/TypeScript oparta o NestJS + Fastify.
+   b) Webowe GUI backendu jest aplikacja React + Vite + Ant Design.
+   c) Repo backendu uzywa pnpm workspaces oraz `docker compose up -d` jako podstawowego sposobu uruchamiania.
+
+3. Przy zmianach dotyczacych uploadu, formatu plikow, metadanych nagrania, autoryzacji, API albo przyszlego MCP:
+   a) sprawdz repo backendu,
+   b) sprawdz kontrakt API backend-wtyczka,
+   c) zaktualizuj dokumentacje po obu stronach,
+   d) uruchom dostepne walidacje albo opisz, czego nie dalo sie sprawdzic.
+
+4. Zrodlem ustalen integracyjnych sa specyfikacje i issue cross-repo oraz realne zachowanie API backendu.
+   a) Jesli backend wybierze konkretna forme dokumentowania API, dopiero wtedy linkuj ja jako referencje.
+
+5. Docelowy endpoint dla uploadu z rozszerzenia to `https://meet2note.com`.
+   a) Na obecnym etapie traktuj `https://meet2note.com` jako srodowisko deweloperskie/prod-like, mimo ze domena wyglada produkcyjnie.
+   b) Lokalny backend nadal moze dzialac pod `http://localhost:3000`.
+   c) Nie hardcoduj sekretow ani tokenow; upload uzywa tokenu zwracanego przez backend po inicjalizacji uploadu.
+   d) Po wdrozeniu uploadu nie pobieraj automatycznie lokalnego pliku `.webm`; upload ma zastapic lokalny zapis.
+
+6. Obecny kontrakt uploadu:
+   a) `POST /api/upload/init` tworzy sesje uploadu i zwraca `recordingId`, `uploadToken` oraz `expiresAt`.
+   b) `PUT /api/upload/{recordingId}/video` wysyla asset `video_audio` jako `application/octet-stream` z naglowkiem `X-Upload-Token`.
+   c) `PUT /api/upload/{recordingId}/microphone` wysyla opcjonalny asset mikrofonu jako `application/octet-stream` z naglowkiem `X-Upload-Token`.
+   d) `POST /api/upload/{recordingId}/complete` konczy upload z naglowkiem `X-Upload-Token`.
+
+## Komunikacja cross-repo
+
+1. Jesli zmiana w tym repozytorium wymaga pracy po stronie `recording-backend`, utworz issue w repozytorium backendu z konkretnym zakresem, kontekstem i kryteriami akceptacji.
+2. Jesli zmiana w `recording-backend` wymaga pracy po stronie tej wtyczki, oczekiwanym miejscem przekazania pracy jest issue w tym repozytorium.
+3. W issue linkuj odpowiednia specyfikacje, kontrakt albo PR, jesli istnieje.
+4. Nie zakladaj, ze ustalenia z rozmowy sa wystarczajaca dokumentacja zaleznosci miedzy projektami.
 
 ## Skrot `+PR`
 
@@ -82,9 +131,11 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 
 4. Kolejne rundy
    a) Po wdrozeniu zatwierdzonych przez czlowieka poprawek zrob commit i push.
-   b) Ponow review Copilota tylko wtedy, gdy nie przekracza to ustalonego limitu rund.
-   c) Domyslny limit to 3 rundy CR - poprawki - CR.
-   d) Jesli limit zostal osiagniety, nie pros o kolejne review automatycznie; zapytaj czlowieka, co dalej.
+   b) Po odpowiedzeniu na wszystkie uwagi z danej rundy popros Copilota o ponowne review poprawek w tym samym PR.
+   c) Po ponowieniu review czekaj do 10 minut na kolejna porcje uwag Copilota.
+   d) Ponow review Copilota tylko wtedy, gdy nie przekracza to ustalonego limitu rund.
+   e) Domyslny limit to 3 rundy CR - poprawki - CR.
+   f) Po trzeciej rundzie poprawek wyslanych do PR nie pros Copilota o kolejne review automatycznie; uznaj proces Copilot CR za zakonczony.
 
 5. Wazne zasady
    a) Nigdy nie wdrazaj sugestii Copilota w ciemno.

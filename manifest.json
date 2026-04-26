@@ -1,10 +1,18 @@
 {
     "manifest_version": 3,
     "name": "Google Meet Recorder",
-    "version": "1.2.0",
-    "permissions": ["activeTab", "downloads", "tabCapture", "offscreen", "storage", "tabs", "desktopCapture"],
+    "version": "1.6.6",
+    "permissions": ["activeTab", "tabCapture", "offscreen", "storage", "tabs", "desktopCapture"],
+    "host_permissions": ["https://sentry.eengine.pl/*", "https://meet2note.com/*"],
     "action": { "default_popup": "popup.html" },
     "background": { "service_worker": "background.js", "type": "module" },
+    "content_scripts": [
+      {
+        "matches": ["https://meet.google.com/*"],
+        "js": ["meetWatcher.js"],
+        "run_at": "document_idle"
+      }
+    ],
     "web_accessible_resources": [
       { "resources": ["offscreen.html"], "matches": ["<all_urls>"] }
     ]

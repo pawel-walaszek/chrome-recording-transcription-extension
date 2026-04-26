@@ -1,8 +1,14 @@
 COMPOSE ?= docker compose
 HOST_UID ?= $(shell id -u)
 HOST_GID ?= $(shell id -g)
+SENTRY_DSN ?= $(shell scripts/sentry-public-dsn.sh || true)
+SENTRY_ENVIRONMENT ?= chrome-extension-dev
+UPLOAD_API_BASE_URL ?= https://meet2note.com
 export HOST_UID
 export HOST_GID
+export SENTRY_DSN
+export SENTRY_ENVIRONMENT
+export UPLOAD_API_BASE_URL
 
 .PHONY: build check shell clean deps-clean prepare-deps
 

@@ -1,8 +1,8 @@
 # Rozszerzenie Chrome do nagrywania spotkań
 
-Nagrywa bieżącą kartę Google Meet (wideo + audio) do pliku `.webm`. Opcjonalnie może domiksować mikrofon, żeby w nagraniu był też Twój głos.
+Nagrywa bieżącą kartę Google Meet i wysyła nagranie bezpośrednio do backendu `https://meet2note.com`.
 
-Wszystko dzieje się lokalnie w przeglądarce.
+Audio karty i mikrofon są wysyłane jako osobne assety, żeby backend mógł później normalizować poziomy, połączyć ścieżki i udostępnić gotowe nagranie. Rozszerzenie nie pobiera lokalnego pliku `.webm`.
 
 Jeśli interesuje Cię proces, decyzje projektowe, demo i dodatkowe materiały, zobacz [wpis na blogu](https://www.recall.ai/blog/how-to-build-a-chrome-recording-extension).
 
@@ -11,9 +11,13 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 ## Funkcje
 
-**Nagrywanie karty** - przechwytuje wideo i audio z karty Google Meet do pliku `.webm` przez `MediaRecorder`.
+**Nagrywanie karty** - przechwytuje wideo i audio z karty Google Meet przez `MediaRecorder`.
 
-**Opcjonalne domiksowanie mikrofonu** - dodaje mikrofon do nagrania po udzieleniu uprawnienia.
+**Osobny asset mikrofonu** - nagrywa mikrofon jako oddzielny asset, jeśli użytkownik udzielił uprawnienia.
+
+**Upload do backendu** - wysyła `video_audio` i opcjonalny `microphone` do `https://meet2note.com`.
+
+**Retry uploadu** - jeśli upload się nie powiedzie, ponawia próbę co 15 sekund aż do sukcesu, bez lokalnego pobierania pliku.
 
 **Architektura MV3/Offscreen** - nagrywanie działa w ukrytym dokumencie offscreen.
 
@@ -23,7 +27,7 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 2. Service worker w tle tworzy i koordynuje dokument offscreen oraz pobiera właściwy `streamId` przechwytywania dla aktywnej karty.
 
-3. Strona offscreen przechwytuje kartę, opcjonalnie miksuje audio z mikrofonu, nagrywa i przekazuje blob do pobrania.
+3. Strona offscreen przechwytuje kartę, nagrywa osobny asset mikrofonu, finalizuje bloby i wysyła je do backendu.
 
 ## Wymagania
 
@@ -32,7 +36,11 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 **Docker** z **Docker Compose v2** oraz **make**, żeby budować rozszerzenie bez lokalnej instalacji Node.js.
 
 Rozszerzenie używa następujących uprawnień Chrome:
-`activeTab`, `downloads`, `tabCapture`, `offscreen`, `storage`, `tabs`, `desktopCapture`.
+`activeTab`, `tabCapture`, `offscreen`, `storage`, `tabs`, `desktopCapture`.
+
+Rozszerzenie ma też wąskie `host_permissions` dla:
+1. `https://meet2note.com/*` - upload nagrań do backendu.
+2. `https://sentry.eengine.pl/*` - opcjonalna diagnostyka błędów, jeśli build zawiera DSN Sentry.
 
 ## Szybki start
 
@@ -70,8 +78,8 @@ Przy zmianach widocznych w przeglądarce wykonaj też test dymny z [`docs/runboo
 
 
 Otwórz Google Meet i kliknij ikonę rozszerzenia:
-1. **Enable Microphone** - nadaje uprawnienie mikrofonu, żeby Twój głos mógł zostać domiksowany do nagrania.
-2. **Start Recording / Stop & Download** - tworzy plik `.webm` przez Downloads API.
+1. **Enable Microphone / Microphone Settings** - otwiera konfigurację mikrofonu i pozwala wybrać urządzenie wejściowe.
+2. **Start Recording / Stop & Upload** - nagrywa kartę i wysyła wynik do `https://meet2note.com`.
 
 ## Instalacja i budowanie
 
@@ -111,13 +119,14 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 
 3. W popupie:
  
-   a) **Enable Microphone** - włącz przed kliknięciem `Start Recording`, żeby poza dźwiękiem innych uczestników nagrać też swój głos.
-   b) Prośba o dostęp do mikrofonu może nie pojawiać się niezawodnie w popupie. W takim przypadku przycisk otwiera dedykowaną stronę `Enable Microphone` (`micsetup.html`), gdzie można kliknąć `Enable` i udzielić dostępu do mikrofonu.
-   c) Po udzieleniu dostępu etykieta zmienia się na `Microphone Enabled`.
-   d) **Start Recording**: rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest włączony i miksowanie jest aktywne (domyślnie), mikrofon zostanie domiksowany.
-   e) **Stop & Download**: finalizuje i pobiera `google-meet-recording-<meeting-id>-<timestamp>.webm`.
+   a) Jest jeden przycisk konfiguracji mikrofonu: przy pierwszym użyciu ma etykietę **Enable Microphone**, otwiera stronę konfiguracji i prosi o dostęp do mikrofonu.
+   b) Po nadaniu uprawnienia ten sam przycisk zmienia etykietę na **Microphone Settings** i pozwala później zmienić mikrofon.
+   c) Na stronie konfiguracji wybierz `Default microphone` albo konkretne urządzenie wejściowe i kliknij `Save Microphone`.
+   d) **Start Recording** rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest dostępny, zostanie nagrany jako osobny asset.
+   e) Podczas nagrywania ten sam przycisk zmienia się na **Stop & Upload**, finalizuje nagranie i wysyła assety do `https://meet2note.com`.
+   f) Status pod przyciskami pokazuje, czy nagrywanie trwa, czy trwa upload oraz kiedy nastąpi kolejna próba retry.
 
-> Podczas nagrywania rozszerzenie pokazuje znacznik `REC`. Wszystkie pliki są zapisywane lokalnie przez Chrome Downloads API.
+> Na aktywnym spotkaniu Google Meet rozszerzenie pokazuje znacznik `RDY`, a podczas nagrywania `REC`. Jeśli nagranie zostało rozpoczęte na karcie Meet, wyjście ze spotkania automatycznie zatrzymuje nagrywanie i uruchamia upload do backendu. Rozszerzenie nie zapisuje nagrań lokalnie przez Chrome Downloads API.
 
 ## Struktura projektu
 ```
@@ -136,22 +145,29 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 ├─ scripts/             # lokalne skrypty pomocnicze
 ├─ src/
 │  ├─ background.ts     # service worker MV3: tworzy offscreen i koordynuje strumienie
-│  ├─ offscreen.ts      # uruchamia nagrywarkę, miksuje mikrofon z kartą i zapisuje blob
+│  ├─ offscreen.ts      # uruchamia nagrywarkę i wysyła assety do backendu
 │  ├─ popup.ts          # obsługa popupu: mikrofon, start/stop
-│  └─ micsetup.ts       # widoczna strona do nadania uprawnienia mikrofonu
+│  ├─ micPreferences.ts # wspólne helpery zapisu wyboru mikrofonu
+│  ├─ uploadClient.ts   # klient kontraktu uploadu backendu
+│  └─ micsetup.ts       # widoczna strona do nadania uprawnienia i wyboru mikrofonu
 └─ dist/                # wygenerowany wynik builda
 ```
 
 ## Konfiguracja
-1. Domiksowanie mikrofonu do nagrania
+1. Asset mikrofonu
   a) W `src/offscreen.ts`:
 ```
-const WANT_MIC_MIX = true
+const WANT_MIC_ASSET = true
 ```
-  b) Ustaw `false`, żeby całkowicie wyłączyć miksowanie mikrofonu i nagrywać tylko audio z karty.
+  b) Ustaw `false`, żeby całkowicie wyłączyć nagrywanie assetu mikrofonu i wysyłać tylko `video_audio`.
 
-2. Nazwy plików wynikowych
-  a) Nagrania: `google-meet-recording-<meet-suffix>-<timestamp>.webm`
+2. Backend uploadu
+  a) Domyślny URL: `https://meet2note.com`.
+  b) Możesz go zmienić przy buildzie:
+
+```
+UPLOAD_API_BASE_URL=http://localhost:3000 make build
+```
 
 ## Komendy builda
 
@@ -160,6 +176,18 @@ const WANT_MIC_MIX = true
 `make shell` - otwiera powłokę w kontenerze buildowym
 `make clean` - usuwa wygenerowany `dist/`
 `make deps-clean` - usuwa wolumeny zależności/cache Docker Compose
+
+### Sentry
+
+Build przez `make` próbuje odczytać publiczny DSN Sentry z `SENTRY_DSN` albo pobrać go przez API na podstawie `SENTRY_AUTH_TOKEN`, `SENTRY_ORG_SLUG`, `SENTRY_PROJECT_SLUG` i `SENTRY_BASE_URL` z `~/.codex/.secrets`. Jeśli DSN nie jest dostępny, integracja Sentry pozostaje wyłączona.
+
+Domyślne środowisko Sentry dla tej wtyczki to `chrome-extension-dev`. Można je zmienić przed buildem:
+
+```
+SENTRY_ENVIRONMENT=chrome-extension-local make build
+```
+
+Do Sentry trafiają błędy techniczne z popupu, service workera, offscreen documentu i strony ustawień mikrofonu. Nie wysyłamy nagrań, danych audio ani treści spotkań.
 
 ## Wewnętrzne skrypty npm
 
@@ -177,6 +205,7 @@ Skrypty npm są szczegółem implementacyjnym używanym przez kontener buildowy 
 2. webpack 5 + ts-loader
 3. copy-webpack-plugin, clean-webpack-plugin
 4. @types/chrome, @types/node
+5. @sentry/browser dla opcjonalnej diagnostyki błędów
 
 Są już zadeklarowane w `package.json`:
 ```
@@ -193,10 +222,12 @@ Są już zadeklarowane w `package.json`:
 ```
 ## Wyjaśnienie uprawnień
 1. `activeTab`, `tabs` - odczyt aktywnej karty, potrzebny do wskazania i opisania nagrania.
-2. `downloads` - lokalny zapis nagrań.
-3. `tabCapture` / `desktopCapture` - przechwytywanie wideo i audio z bieżącej karty.
-4. `offscreen` - tworzenie dokumentu offscreen dla logiki nagrywania działającej w tle.
-5. `storage` - zapis tymczasowych wskazówek o stanie nagrywania dla synchronizacji UI.
+2. `tabCapture` / `desktopCapture` - przechwytywanie wideo i audio z bieżącej karty.
+3. `offscreen` - tworzenie dokumentu offscreen dla logiki nagrywania i uploadu działającej w tle.
+4. `storage` - zapis tymczasowych wskazówek o stanie nagrywania/uploadu dla synchronizacji UI.
+5. `host_permissions` dla `https://meet2note.com/*` - upload nagrań do backendu.
+6. `host_permissions` dla `https://sentry.eengine.pl/*` - wysyłka zdarzeń diagnostycznych do Sentry, gdy build zawiera DSN.
+7. `content_scripts` dla `https://meet.google.com/*` - content script wykrywa wejście i wyjście ze spotkania, żeby pokazać stan `RDY` i automatycznie zatrzymać nagrywanie po opuszczeniu spotkania.
 
 ## Rozwiązywanie problemów / FAQ
 
@@ -208,20 +239,27 @@ Odpowiedź:
 
 Pytanie: W nagraniu nie ma audio z mikrofonu.
 Odpowiedź:
-1. Kliknij `Enable Microphone` w popupie. Jeśli prośba inline nie zadziała, otworzy się karta konfiguracji mikrofonu; kliknij tam `Enable` i zezwól na dostęp.
+1. Kliknij `Enable Microphone` albo `Microphone Settings` w popupie, wybierz mikrofon i kliknij `Save Microphone`.
 2. Sprawdź też uprawnienia mikrofonu dla Chrome w systemie: `System Settings` -> `Privacy` -> `Microphone`.
+
+Pytanie: Jak zmienić mikrofon, jeśli Chrome używa złego urządzenia?
+Odpowiedź:
+1. Kliknij `Microphone Settings` w popupie.
+2. Wybierz `Default microphone` albo konkretne urządzenie z listy.
+3. Kliknij `Save Microphone`.
+4. Przy następnym nagraniu rozszerzenie użyje zapisanego wyboru; jeśli urządzenie zniknie, wróci do mikrofonu domyślnego albo nagrywania bez mikrofonu.
 
 Pytanie: Dlaczego nagranie jest ciche albo bez dźwięku?
 Odpowiedź:
 1. Upewnij się, że karta Google Meet odtwarza audio i nie jest wyciszona.
 2. Jeśli wyciszysz stronę, kartę albo Google Meet, audio z karty nie zostanie przechwycone.
-3. Jeśli miksowanie mikrofonu jest włączone, sprawdź urządzenie wejściowe i poziomy w systemie.
+3. Jeśli asset mikrofonu jest włączony, sprawdź urządzenie wejściowe i poziomy w systemie.
 
-Pytanie: `Stop & Download` kończy działanie, ale plik się nie pojawia. Co zrobić?
+Pytanie: `Stop & Upload` kończy nagrywanie, ale upload się ponawia. Co zrobić?
 Odpowiedź:
-1. Sprawdź panel pobranych plików w przeglądarce.
-2. Jeśli masz włączone pytanie o miejsce zapisu każdego pliku, powinno pojawić się okno zapisu.
-3. Niektóre menedżery pobierania albo rozszerzenia mogą przeszkadzać; wyłącz je i spróbuj ponownie.
+1. Sprawdź, czy `https://meet2note.com` działa i czy przeglądarka ma połączenie z siecią.
+2. Rozszerzenie ponawia pełną próbę uploadu co 15 sekund aż do sukcesu.
+3. Nie zamykaj przeglądarki ani nie przeładowuj rozszerzenia, bo gotowe bloby są trzymane w pamięci i mogą zostać utracone.
 
 Pytanie: Dlaczego przyciski w popupie nie włączają się albo nie wyłączają poprawnie?
 Odpowiedź:
