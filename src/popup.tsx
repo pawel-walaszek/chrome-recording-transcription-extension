@@ -296,8 +296,13 @@ function App(): React.ReactElement {
     [recordingState, uploadState, now]
   )
   const recordingButtonText = getRecordingButtonText(recordingState, uploadState)
+  const recordingControlsAvailable = meet2NoteConnection.connected
   const uploadBlocksAction = uploadState.status === 'uploading' || uploadState.status === 'upload_retrying'
-  const actionDisabled = inFlight || recordingState.starting || recordingState.stopping || uploadBlocksAction
+  const actionDisabled = !recordingControlsAvailable ||
+    inFlight ||
+    recordingState.starting ||
+    recordingState.stopping ||
+    uploadBlocksAction
 
   const openSettings = useCallback(async () => {
     try {
@@ -497,27 +502,31 @@ function App(): React.ReactElement {
             </Text>
           </>
         )}
-        <Divider style={{ margin: '4px 0' }} />
-        <Button
-          block
-          disabled={actionDisabled}
-          icon={actionIcon}
-          onClick={toggleRecording}
-          type={recordingState.recording ? 'default' : 'primary'}
-        >
-          {recordingButtonText}
-        </Button>
-        <Space size={6} align="start">
-          {uploadState.status === 'uploaded' ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
-          <Text style={{ fontSize: 12, lineHeight: 1.25 }}>{recordingText}</Text>
-        </Space>
-        {(uploadState.status === 'upload_retrying' || uploadState.status === 'auth_required') && uploadState.error ? (
-          <Alert
-            type={uploadState.status === 'auth_required' ? 'error' : 'warning'}
-            showIcon={false}
-            message={uploadState.error}
-            style={{ fontSize: 12, padding: '4px 8px' }}
-          />
+        {recordingControlsAvailable ? (
+          <>
+            <Divider style={{ margin: '4px 0' }} />
+            <Button
+              block
+              disabled={actionDisabled}
+              icon={actionIcon}
+              onClick={toggleRecording}
+              type={recordingState.recording ? 'default' : 'primary'}
+            >
+              {recordingButtonText}
+            </Button>
+            <Space size={6} align="start">
+              {uploadState.status === 'uploaded' ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
+              <Text style={{ fontSize: 12, lineHeight: 1.25 }}>{recordingText}</Text>
+            </Space>
+            {(uploadState.status === 'upload_retrying' || uploadState.status === 'auth_required') && uploadState.error ? (
+              <Alert
+                type={uploadState.status === 'auth_required' ? 'error' : 'warning'}
+                showIcon={false}
+                message={uploadState.error}
+                style={{ fontSize: 12, padding: '4px 8px' }}
+              />
+            ) : null}
+          </>
         ) : null}
       </Flex>
     </ConfigProvider>
