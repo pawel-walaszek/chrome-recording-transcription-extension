@@ -1,6 +1,7 @@
 // src/background.ts
 
 import { captureException, initDiagnostics } from './diagnostics'
+import { getMeet2NoteExtensionToken } from './extensionAuth'
 import { clearMicPreferences, getMicPreferences, type MicPreferences } from './micPreferences'
 
 initDiagnostics('background')
@@ -595,6 +596,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true })
       } catch (e: any) {
         captureException(e, { operation: 'CLEAR_MIC_PREFERENCES' })
+        sendResponse({ ok: false, error: e?.message || String(e) })
+      }
+      return
+    }
+
+    if (msg?.type === 'GET_MEET2NOTE_EXTENSION_TOKEN') {
+      try {
+        const token = await getMeet2NoteExtensionToken()
+        sendResponse({ ok: true, token })
+      } catch (e: any) {
+        captureException(e, { operation: 'GET_MEET2NOTE_EXTENSION_TOKEN' })
         sendResponse({ ok: false, error: e?.message || String(e) })
       }
       return

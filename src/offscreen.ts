@@ -1,7 +1,7 @@
 // src/offscreen.ts
 
 import { captureException, captureMessage, initDiagnostics } from './diagnostics'
-import { isMeet2NoteAuthError, markMeet2NoteReconnectRequired } from './extensionAuth'
+import { isMeet2NoteAuthError, markMeet2NoteReconnectRequired, Meet2NoteAuthError } from './extensionAuth'
 import type { MicPreferences } from './micPreferences'
 import { uploadRecordingOnce, type UploadRecordingInput } from './uploadClient'
 
@@ -201,6 +201,17 @@ async function requestClearMicPreferences(): Promise<void> {
   }
 }
 
+async function requestMeet2NoteExtensionToken(): Promise<string> {
+  const response = await chrome.runtime.sendMessage({ type: 'GET_MEET2NOTE_EXTENSION_TOKEN' })
+  if (response?.ok === false) {
+    throw new Meet2NoteAuthError(response.error || 'Could not read Meet2Note connection.')
+  }
+  if (typeof response?.token !== 'string' || !response.token) {
+    throw new Meet2NoteAuthError('Connect to Meet2Note before uploading.')
+  }
+  return response.token
+}
+
 async function maybeGetMicStream(prefs: MicPreferences): Promise<MediaStream | null> {
   if (!WANT_MIC_ASSET) return null
 
@@ -388,7 +399,8 @@ async function uploadRecordingUntilSuccess(input: UploadRecordingInput, attempt 
     pushUploadState(currentAttempt === 1 ? 'uploading' : 'upload_retrying', { attempt: currentAttempt })
 
     try {
-      const result = await uploadRecordingOnce(input)
+      const extensionToken = await requestMeet2NoteExtensionToken()
+      const result = await uploadRecordingOnce(input, extensionToken)
       uploadInProgress = false
       pushUploadState('uploaded', {
         attempt: currentAttempt,

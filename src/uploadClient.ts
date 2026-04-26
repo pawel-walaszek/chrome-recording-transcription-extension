@@ -1,8 +1,7 @@
 import { captureException } from './diagnostics'
 import {
   makeAuthorizationHeader,
-  Meet2NoteAuthError,
-  requireMeet2NoteExtensionToken
+  Meet2NoteAuthError
 } from './extensionAuth'
 import { makeMeet2NoteUrl } from './meet2noteConfig'
 
@@ -79,8 +78,9 @@ async function parseInitResponse(response: Response): Promise<InitUploadResponse
   return { recordingId, uploadToken, expiresAt }
 }
 
-async function uploadAuthHeaders(): Promise<{ Authorization: string }> {
-  const token = await requireMeet2NoteExtensionToken()
+async function uploadAuthHeaders(extensionToken: string): Promise<{ Authorization: string }> {
+  const token = extensionToken.trim()
+  if (!token) throw new Meet2NoteAuthError('Connect to Meet2Note before uploading.')
   return { Authorization: makeAuthorizationHeader(token) }
 }
 
@@ -164,9 +164,12 @@ async function completeUpload(
   if (!response.ok) throw httpError('complete upload', response)
 }
 
-export async function uploadRecordingOnce(input: UploadRecordingInput): Promise<UploadRecordingResult> {
+export async function uploadRecordingOnce(
+  input: UploadRecordingInput,
+  extensionToken: string
+): Promise<UploadRecordingResult> {
   try {
-    const authHeaders = await uploadAuthHeaders()
+    const authHeaders = await uploadAuthHeaders(extensionToken)
     const session = await initUpload(input, authHeaders)
     const assets: UploadAsset[] = ['video_audio']
 
