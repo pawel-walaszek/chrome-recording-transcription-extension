@@ -1,6 +1,9 @@
 import { captureException } from './diagnostics'
-
-declare const __UPLOAD_API_BASE_URL__: string
+import {
+  makeAuthorizationHeader,
+  Meet2NoteAuthError
+} from './extensionAuth'
+import { makeMeet2NoteUrl } from './meet2noteConfig'
 
 export type UploadAsset = 'video_audio' | 'microphone'
 
@@ -25,24 +28,14 @@ interface InitUploadResponse {
   expiresAt: string
 }
 
-const DEFAULT_UPLOAD_API_BASE_URL = 'https://meet2note.com'
 const INIT_UPLOAD_TIMEOUT_MS = 30_000
 const COMPLETE_UPLOAD_TIMEOUT_MS = 30_000
 const ASSET_UPLOAD_TIMEOUT_MS = 5 * 60_000
 
-function getUploadApiBaseUrl(): string {
-  const raw = typeof __UPLOAD_API_BASE_URL__ === 'string' && __UPLOAD_API_BASE_URL__.trim()
-    ? __UPLOAD_API_BASE_URL__.trim()
-    : DEFAULT_UPLOAD_API_BASE_URL
-
-  return raw.replace(/\/+$/, '')
-}
-
-function makeUrl(path: string): string {
-  return `${getUploadApiBaseUrl()}${path}`
-}
-
 function httpError(operation: string, response: Response): Error {
+  if (response.status === 401 || response.status === 403) {
+    return new Meet2NoteAuthError(`Meet2Note connection required for ${operation}.`, response.status)
+  }
   return new Error(`${operation} failed with HTTP ${response.status}`)
 }
 
@@ -85,7 +78,16 @@ async function parseInitResponse(response: Response): Promise<InitUploadResponse
   return { recordingId, uploadToken, expiresAt }
 }
 
-async function initUpload(input: UploadRecordingInput): Promise<InitUploadResponse> {
+async function uploadAuthHeaders(extensionToken: string): Promise<{ Authorization: string }> {
+  const token = extensionToken.trim()
+  if (!token) throw new Meet2NoteAuthError('Connect to Meet2Note before uploading.')
+  return { Authorization: makeAuthorizationHeader(token) }
+}
+
+async function initUpload(
+  input: UploadRecordingInput,
+  authHeaders: { Authorization: string }
+): Promise<InitUploadResponse> {
   const body: Record<string, unknown> = {
     title: input.title
   }
@@ -97,10 +99,13 @@ async function initUpload(input: UploadRecordingInput): Promise<InitUploadRespon
 
   const response = await fetchWithTimeout(
     'init upload',
-    makeUrl('/api/upload/init'),
+    makeMeet2NoteUrl('/api/upload/init'),
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders
+      },
       body: JSON.stringify(body)
     },
     INIT_UPLOAD_TIMEOUT_MS
@@ -114,16 +119,18 @@ async function uploadAsset(
   recordingId: string,
   uploadToken: string,
   path: 'video' | 'microphone',
-  blob: Blob
+  blob: Blob,
+  authHeaders: { Authorization: string }
 ): Promise<void> {
   const response = await fetchWithTimeout(
     `upload ${path}`,
-    makeUrl(`/api/upload/${encodeURIComponent(recordingId)}/${path}`),
+    makeMeet2NoteUrl(`/api/upload/${encodeURIComponent(recordingId)}/${path}`),
     {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/octet-stream',
-        'X-Upload-Token': uploadToken
+        'X-Upload-Token': uploadToken,
+        ...authHeaders
       },
       body: blob
     },
@@ -136,16 +143,18 @@ async function uploadAsset(
 async function completeUpload(
   recordingId: string,
   uploadToken: string,
-  assets: UploadAsset[]
+  assets: UploadAsset[],
+  authHeaders: { Authorization: string }
 ): Promise<void> {
   const response = await fetchWithTimeout(
     'complete upload',
-    makeUrl(`/api/upload/${encodeURIComponent(recordingId)}/complete`),
+    makeMeet2NoteUrl(`/api/upload/${encodeURIComponent(recordingId)}/complete`),
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Upload-Token': uploadToken
+        'X-Upload-Token': uploadToken,
+        ...authHeaders
       },
       body: JSON.stringify({ assets })
     },
@@ -155,19 +164,23 @@ async function completeUpload(
   if (!response.ok) throw httpError('complete upload', response)
 }
 
-export async function uploadRecordingOnce(input: UploadRecordingInput): Promise<UploadRecordingResult> {
+export async function uploadRecordingOnce(
+  input: UploadRecordingInput,
+  extensionToken: string
+): Promise<UploadRecordingResult> {
   try {
-    const session = await initUpload(input)
+    const authHeaders = await uploadAuthHeaders(extensionToken)
+    const session = await initUpload(input, authHeaders)
     const assets: UploadAsset[] = ['video_audio']
 
-    await uploadAsset(session.recordingId, session.uploadToken, 'video', input.videoBlob)
+    await uploadAsset(session.recordingId, session.uploadToken, 'video', input.videoBlob, authHeaders)
 
     if (input.microphoneBlob && input.microphoneBlob.size > 0) {
-      await uploadAsset(session.recordingId, session.uploadToken, 'microphone', input.microphoneBlob)
+      await uploadAsset(session.recordingId, session.uploadToken, 'microphone', input.microphoneBlob, authHeaders)
       assets.push('microphone')
     }
 
-    await completeUpload(session.recordingId, session.uploadToken, assets)
+    await completeUpload(session.recordingId, session.uploadToken, assets, authHeaders)
 
     return {
       recordingId: session.recordingId,

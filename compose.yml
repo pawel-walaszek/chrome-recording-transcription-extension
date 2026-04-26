@@ -16,6 +16,7 @@ services:
       - ./tsconfig.json:/workspace/tsconfig.json:ro
       - ./webpack.config.js:/workspace/webpack.config.js:ro
       - ./manifest.json:/workspace/manifest.json:ro
+      - ./connect-callback.html:/workspace/connect-callback.html:ro
       - ./popup.html:/workspace/popup.html:ro
       - ./offscreen.html:/workspace/offscreen.html:ro
       - ./micsetup.html:/workspace/micsetup.html:ro

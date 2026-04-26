@@ -84,14 +84,17 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 5. Docelowy endpoint dla uploadu z rozszerzenia to `https://meet2note.com`.
    a) Na obecnym etapie traktuj `https://meet2note.com` jako srodowisko deweloperskie/prod-like, mimo ze domena wyglada produkcyjnie.
    b) Lokalny backend nadal moze dzialac pod `http://localhost:3000`.
-   c) Nie hardcoduj sekretow ani tokenow; upload uzywa tokenu zwracanego przez backend po inicjalizacji uploadu.
+   c) Nie hardcoduj sekretow ani tokenow; dlugotrwaly `extensionToken` jest zapisywany lokalnie po flow `Connect to Meet2Note`.
    d) Po wdrozeniu uploadu nie pobieraj automatycznie lokalnego pliku `.webm`; upload ma zastapic lokalny zapis.
 
-6. Obecny kontrakt uploadu:
-   a) `POST /api/upload/init` tworzy sesje uploadu i zwraca `recordingId`, `uploadToken` oraz `expiresAt`.
-   b) `PUT /api/upload/{recordingId}/video` wysyla asset `video_audio` jako `application/octet-stream` z naglowkiem `X-Upload-Token`.
-   c) `PUT /api/upload/{recordingId}/microphone` wysyla opcjonalny asset mikrofonu jako `application/octet-stream` z naglowkiem `X-Upload-Token`.
-   d) `POST /api/upload/{recordingId}/complete` konczy upload z naglowkiem `X-Upload-Token`.
+6. Obecny kontrakt polaczenia i uploadu:
+   a) `GET /extension/connect` uruchamia backendowy flow polaczenia wtyczki z kontem Meet2Note.
+   b) `POST /api/extension/token` wymienia jednorazowy `code` na dlugotrwaly `extensionToken`.
+   c) `POST /api/upload/init` wymaga `Authorization: Bearer <extensionToken>`, tworzy sesje uploadu i zwraca `recordingId`, `uploadToken` oraz `expiresAt`.
+   d) `PUT /api/upload/{recordingId}/video` wysyla asset `video_audio` jako `application/octet-stream` z naglowkami `Authorization` i `X-Upload-Token`.
+   e) `PUT /api/upload/{recordingId}/microphone` wysyla opcjonalny asset mikrofonu jako `application/octet-stream` z naglowkami `Authorization` i `X-Upload-Token`.
+   f) `POST /api/upload/{recordingId}/complete` konczy upload z naglowkami `Authorization` i `X-Upload-Token`.
+   g) Przy `401` albo `403` nie ponawiaj zwyklego uploadu bez konca; wyczysc token i pokaz koniecznosc ponownego polaczenia z Meet2Note.
 
 ## Komunikacja cross-repo
 
@@ -114,12 +117,10 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 2. Review Copilota
    a) Popros o review Copilota, jesli repozytorium to obsluguje.
    b) Poczekaj na wynik review.
-   c) Jesli Copilot zglosi uwagi, nie wdrazaj ich automatycznie.
-   d) Zbierz uwagi Copilota i przedstaw je czlowiekowi do decyzji, najlepiej pojedynczo.
-   e) Przy omawianiu uwagi podaj wystarczajacy kontekst techniczny, zeby czlowiek mogl podjac decyzje bez znajomosci detali implementacji.
-   f) Wyjasnij, czego uwaga dotyczy, jaki jest praktyczny skutek, jakie sa sensowne opcje i jaka opcje rekomendujesz.
-   g) Kazda uwage omow z czlowiekiem przed zmiana w kodzie.
-   h) Dopiero po zatwierdzeniu konkretnej uwagi przez czlowieka wprowadz zmiane.
+   c) Do odwolania wykonuj tylko jedna runde PR/CR z Copilotem.
+   d) Jesli Copilot zglosi techniczne uwagi, wdrazaj je wedlug wlasnej rekomendacji bez pytania czlowieka o kazda z nich.
+   e) Pytaj czlowieka tylko wtedy, gdy uwaga jest trade-offem, moze zmienic zalozenia funkcjonalne albo wymaga decyzji produktowej.
+   f) Jesli pytasz o uwage CR, podaj licznik w formacie `Pytanie X z Y` i wyjasnij kontekst szerzej niz jednym zdaniem.
 
 3. Odpowiedzi do review
    a) Na kazda uwage Copilota odpowiedz w watku:
@@ -131,17 +132,13 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 
 4. Kolejne rundy
    a) Po wdrozeniu zatwierdzonych przez czlowieka poprawek zrob commit i push.
-   b) Po odpowiedzeniu na wszystkie uwagi z danej rundy popros Copilota o ponowne review poprawek w tym samym PR.
-   c) Po ponowieniu review czekaj do 10 minut na kolejna porcje uwag Copilota.
-   d) Ponow review Copilota tylko wtedy, gdy nie przekracza to ustalonego limitu rund.
-   e) Domyslny limit to 3 rundy CR - poprawki - CR.
-   f) Po trzeciej rundzie poprawek wyslanych do PR nie pros Copilota o kolejne review automatycznie; uznaj proces Copilot CR za zakonczony.
+   b) Nie pros Copilota o ponowne review po wdrozeniu poprawek z jego rundy, chyba ze czlowiek wyraznie o to poprosi.
+   c) Po jednej rundzie CR i odpowiedzeniu na jej watki uznaj proces Copilot CR za zakonczony.
 
 5. Wazne zasady
-   a) Nigdy nie wdrazaj sugestii Copilota w ciemno.
-   b) Copilot jest reviewerem pomocniczym, nie decydentem.
-   c) Decyzje o zastosowaniu kazdej sugestii podejmuje czlowiek.
-   d) Jesli czlowiek prosi o szybkie poprawki, nadal pokaz uwagi Copilota przed ich wdrozeniem.
+   a) Copilot jest reviewerem pomocniczym, nie decydentem.
+   b) Decyzje techniczne podejmuj samodzielnie wedlug najlepszej rekomendacji, respektujac architekture projektu.
+   c) Decyzje produktowe, trade-offy i zmiany zalozen funkcjonalnych nadal eskaluj do czlowieka.
 
 ## Chrome Extension
 

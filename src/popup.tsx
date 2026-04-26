@@ -3,7 +3,9 @@
 import {
   CheckCircleOutlined,
   CloudUploadOutlined,
+  LinkOutlined,
   LoadingOutlined,
+  LogoutOutlined,
   SettingOutlined,
   VideoCameraOutlined
 } from '@ant-design/icons'
@@ -11,11 +13,21 @@ import { Alert, Button, ConfigProvider, Divider, Flex, Space, Typography, theme 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { captureException, initDiagnostics } from './diagnostics'
+import {
+  disconnectMeet2Note,
+  getMeet2NoteConnection,
+  MEET2NOTE_AUTH_ERROR_KEY,
+  MEET2NOTE_CONNECTED_AT_KEY,
+  MEET2NOTE_CONNECTED_USER_KEY,
+  MEET2NOTE_EXTENSION_TOKEN_KEY,
+  startMeet2NoteConnectFlow,
+  type Meet2NoteConnection
+} from './extensionAuth'
 import { getMicPreferences, MIC_DEVICE_ID_KEY, MIC_LABEL_KEY } from './micPreferences'
 
 initDiagnostics('popup')
 
-type UploadStatus = 'idle' | 'uploading' | 'upload_retrying' | 'uploaded'
+type UploadStatus = 'idle' | 'uploading' | 'upload_retrying' | 'uploaded' | 'auth_required'
 
 interface RecordingStatus {
   recording: boolean
@@ -32,6 +44,7 @@ interface UploadState {
 
 const { Text } = Typography
 const START_RECORDING_POPUP_DELAY_MS = 3_000
+const MEET2NOTE_BRAND_ICON_URL = chrome.runtime.getURL('icons/meet2note-favicon.svg')
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
@@ -45,7 +58,11 @@ function formatDuration(ms: number): string {
 }
 
 function isUploadStatus(value: unknown): value is UploadStatus {
-  return value === 'idle' || value === 'uploading' || value === 'upload_retrying' || value === 'uploaded'
+  return value === 'idle' ||
+    value === 'uploading' ||
+    value === 'upload_retrying' ||
+    value === 'uploaded' ||
+    value === 'auth_required'
 }
 
 async function openMicSetupTab(): Promise<void> {
@@ -95,6 +112,7 @@ async function readMicButtonLabel(): Promise<{ label: string; title: string }> {
 function getRecordingText(recordingState: RecordingStatus, uploadState: UploadState, now: number): string {
   if (uploadState.status === 'uploaded') return 'Uploaded'
   if (uploadState.status === 'uploading') return 'Uploading...'
+  if (uploadState.status === 'auth_required') return 'Connect to Meet2Note to upload.'
   if (uploadState.status === 'upload_retrying') {
     const waitMs = typeof uploadState.nextRetryAt === 'number'
       ? Math.max(0, uploadState.nextRetryAt - now)
@@ -115,6 +133,7 @@ function getRecordingText(recordingState: RecordingStatus, uploadState: UploadSt
 
 function getRecordingButtonText(recordingState: RecordingStatus, uploadState: UploadState): string {
   if (uploadState.status === 'uploading') return 'Uploading...'
+  if (uploadState.status === 'auth_required') return recordingState.recording ? 'Stop & Upload' : 'Start Recording'
   if (uploadState.status === 'upload_retrying') return 'Retrying Upload...'
   if (recordingState.starting) return 'Starting...'
   if (recordingState.stopping) return 'Stopping...'
@@ -138,8 +157,16 @@ function App(): React.ReactElement {
     label: 'Microphone Settings',
     title: 'Choose which microphone should be included in recordings'
   })
+  const [meet2NoteConnection, setMeet2NoteConnection] = useState<Meet2NoteConnection>({
+    connected: false,
+    user: null,
+    connectedAt: null,
+    authError: null
+  })
   const [now, setNow] = useState(Date.now())
   const [inFlight, setInFlight] = useState(false)
+  const [connectingMeet2Note, setConnectingMeet2Note] = useState(false)
+  const [disconnectingMeet2Note, setDisconnectingMeet2Note] = useState(false)
   const inFlightRef = useRef(false)
 
   useEffect(() => {
@@ -157,6 +184,11 @@ function App(): React.ReactElement {
     ])
     setMicButton(button)
     setMicStatus(status)
+  }, [])
+
+  const refreshMeet2NoteConnection = useCallback(async () => {
+    const connection = await getMeet2NoteConnection()
+    setMeet2NoteConnection(connection)
   }, [])
 
   useEffect(() => {
@@ -183,9 +215,12 @@ function App(): React.ReactElement {
           recordingStartedAt: null
         })
       }
-      await refreshMic().catch(() => {})
+      await Promise.all([
+        refreshMic().catch(() => {}),
+        refreshMeet2NoteConnection().catch(() => {})
+      ])
     })()
-  }, [refreshMic])
+  }, [refreshMic, refreshMeet2NoteConnection])
 
   useEffect(() => {
     if (!('permissions' in navigator)) return undefined
@@ -242,6 +277,14 @@ function App(): React.ReactElement {
       if (changes[MIC_DEVICE_ID_KEY] || changes[MIC_LABEL_KEY]) {
         refreshMic().catch(() => {})
       }
+      if (
+        changes[MEET2NOTE_EXTENSION_TOKEN_KEY] ||
+        changes[MEET2NOTE_CONNECTED_USER_KEY] ||
+        changes[MEET2NOTE_CONNECTED_AT_KEY] ||
+        changes[MEET2NOTE_AUTH_ERROR_KEY]
+      ) {
+        refreshMeet2NoteConnection().catch(() => {})
+      }
     }
 
     chrome.runtime.onMessage.addListener(messageListener)
@@ -250,15 +293,26 @@ function App(): React.ReactElement {
       chrome.runtime.onMessage.removeListener(messageListener)
       chrome.storage.onChanged.removeListener(storageListener)
     }
-  }, [refreshMic])
+  }, [refreshMic, refreshMeet2NoteConnection])
 
   const recordingText = useMemo(
     () => getRecordingText(recordingState, uploadState, now),
     [recordingState, uploadState, now]
   )
   const recordingButtonText = getRecordingButtonText(recordingState, uploadState)
+  const recordingControlsAvailable = meet2NoteConnection.connected
   const uploadBlocksAction = uploadState.status === 'uploading' || uploadState.status === 'upload_retrying'
-  const actionDisabled = inFlight || recordingState.starting || recordingState.stopping || uploadBlocksAction
+  const connectionActionDisabled = recordingState.recording ||
+    recordingState.starting ||
+    recordingState.stopping ||
+    uploadBlocksAction
+  const actionDisabled = !recordingControlsAvailable ||
+    inFlight ||
+    recordingState.starting ||
+    recordingState.stopping ||
+    uploadBlocksAction
+  const connectionErrorMessage = meet2NoteConnection.authError ||
+    (uploadState.status === 'auth_required' ? uploadState.error : null)
 
   const openSettings = useCallback(async () => {
     try {
@@ -269,6 +323,34 @@ function App(): React.ReactElement {
       alert('Could not open the microphone setup page. Please try again.')
     }
   }, [])
+
+  const connectMeet2Note = useCallback(async () => {
+    setConnectingMeet2Note(true)
+    try {
+      await startMeet2NoteConnectFlow()
+      window.close()
+    } catch (error) {
+      console.error('[popup] Meet2Note connect flow error', error)
+      captureException(error, { operation: 'startMeet2NoteConnectFlow' })
+      alert(`Could not open Meet2Note connection:\n${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setConnectingMeet2Note(false)
+    }
+  }, [])
+
+  const disconnectMeet2NoteAccount = useCallback(async () => {
+    setDisconnectingMeet2Note(true)
+    try {
+      await disconnectMeet2Note()
+      await refreshMeet2NoteConnection()
+    } catch (error) {
+      console.error('[popup] Meet2Note disconnect flow error', error)
+      captureException(error, { operation: 'disconnectMeet2Note' })
+      alert(`Could not disconnect Meet2Note:\n${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setDisconnectingMeet2Note(false)
+    }
+  }, [refreshMeet2NoteConnection])
 
   const startRecording = useCallback(async () => {
     inFlightRef.current = true
@@ -412,6 +494,22 @@ function App(): React.ReactElement {
       }}
     >
       <Flex vertical gap={8} style={{ width: 232, padding: 10 }}>
+        <Flex align="center" gap={10}>
+          <img
+            alt="Meet2Note"
+            src={MEET2NOTE_BRAND_ICON_URL}
+            style={{ width: 28, height: 28, display: 'block', borderRadius: 8 }}
+          />
+          <Flex vertical gap={0}>
+            <Text strong style={{ fontSize: 14, lineHeight: 1.1 }}>
+              Meet2Note
+            </Text>
+            <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+              Just meet. We note.
+            </Text>
+          </Flex>
+        </Flex>
+        <Divider style={{ margin: '2px 0 4px' }} />
         <Button
           block
           icon={<SettingOutlined />}
@@ -424,26 +522,73 @@ function App(): React.ReactElement {
           {micStatus || 'Mic: Default microphone'}
         </Text>
         <Divider style={{ margin: '4px 0' }} />
-        <Button
-          block
-          disabled={actionDisabled}
-          icon={actionIcon}
-          onClick={toggleRecording}
-          type={recordingState.recording ? 'default' : 'primary'}
-        >
-          {recordingButtonText}
-        </Button>
-        <Space size={6} align="start">
-          {uploadState.status === 'uploaded' ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
-          <Text style={{ fontSize: 12, lineHeight: 1.25 }}>{recordingText}</Text>
-        </Space>
-        {uploadState.status === 'upload_retrying' && uploadState.error ? (
-          <Alert
-            type="warning"
-            showIcon={false}
-            message={uploadState.error}
-            style={{ fontSize: 12, padding: '4px 8px' }}
-          />
+        {meet2NoteConnection.connected ? (
+          <Flex vertical gap={6}>
+            <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.25 }}>
+              Connected: {meet2NoteConnection.user?.email || meet2NoteConnection.user?.displayName || 'Meet2Note'}
+            </Text>
+            <Button
+              block
+              danger
+              disabled={connectionActionDisabled}
+              icon={<LogoutOutlined />}
+              loading={disconnectingMeet2Note}
+              onClick={disconnectMeet2NoteAccount}
+              size="small"
+            >
+              Disconnect
+            </Button>
+          </Flex>
+        ) : (
+          <>
+            <Button
+              block
+              disabled={disconnectingMeet2Note}
+              icon={<LinkOutlined />}
+              loading={connectingMeet2Note}
+              onClick={connectMeet2Note}
+              type="primary"
+            >
+              Connect to Meet2Note
+            </Button>
+            <Text type={meet2NoteConnection.authError ? 'danger' : 'secondary'} style={{ fontSize: 12, lineHeight: 1.25 }}>
+              {meet2NoteConnection.authError ? 'Reconnect to Meet2Note' : 'Not connected'}
+            </Text>
+            {connectionErrorMessage ? (
+              <Alert
+                type="error"
+                showIcon={false}
+                message={connectionErrorMessage}
+                style={{ fontSize: 12, padding: '4px 8px' }}
+              />
+            ) : null}
+          </>
+        )}
+        {recordingControlsAvailable ? (
+          <>
+            <Divider style={{ margin: '4px 0' }} />
+            <Button
+              block
+              disabled={actionDisabled}
+              icon={actionIcon}
+              onClick={toggleRecording}
+              type={recordingState.recording ? 'default' : 'primary'}
+            >
+              {recordingButtonText}
+            </Button>
+            <Space size={6} align="start">
+              {uploadState.status === 'uploaded' ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
+              <Text style={{ fontSize: 12, lineHeight: 1.25 }}>{recordingText}</Text>
+            </Space>
+            {(uploadState.status === 'upload_retrying' || uploadState.status === 'auth_required') && uploadState.error ? (
+              <Alert
+                type={uploadState.status === 'auth_required' ? 'error' : 'warning'}
+                showIcon={false}
+                message={uploadState.error}
+                style={{ fontSize: 12, padding: '4px 8px' }}
+              />
+            ) : null}
+          </>
         ) : null}
       </Flex>
     </ConfigProvider>

@@ -1,6 +1,7 @@
 // src/background.ts
 
 import { captureException, initDiagnostics } from './diagnostics'
+import { getMeet2NoteExtensionToken } from './extensionAuth'
 import { clearMicPreferences, getMicPreferences, type MicPreferences } from './micPreferences'
 
 initDiagnostics('background')
@@ -17,7 +18,7 @@ let autoStopMeetTabId: number | null = null
 let recordingStartedAt: number | null = null
 const meetTabsInMeeting = new Set<number>()
 
-type UploadStatus = 'idle' | 'uploading' | 'upload_retrying' | 'uploaded'
+type UploadStatus = 'idle' | 'uploading' | 'upload_retrying' | 'uploaded' | 'auth_required'
 
 let currentUploadStatus: UploadStatus = 'idle'
 let currentUploadError: string | null = null
@@ -132,7 +133,11 @@ function isUploadBlockingNewRecording(): boolean {
 }
 
 function isUploadStatus(value: unknown): value is UploadStatus {
-  return value === 'idle' || value === 'uploading' || value === 'upload_retrying' || value === 'uploaded'
+  return value === 'idle' ||
+    value === 'uploading' ||
+    value === 'upload_retrying' ||
+    value === 'uploaded' ||
+    value === 'auth_required'
 }
 
 async function hydrateUploadStateFromSession(): Promise<void> {
@@ -276,7 +281,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
     if (msg?.type === 'UPLOAD_STATE') {
       const status = typeof msg.status === 'string' ? msg.status as UploadStatus : 'idle'
-      if (status === 'uploading' || status === 'upload_retrying' || status === 'uploaded' || status === 'idle') {
+      if (isUploadStatus(status)) {
         setUploadState(status, {
           error: typeof msg.error === 'string' ? msg.error : null,
           nextRetryAt: typeof msg.nextRetryAt === 'number' ? msg.nextRetryAt : null,
@@ -591,6 +596,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true })
       } catch (e: any) {
         captureException(e, { operation: 'CLEAR_MIC_PREFERENCES' })
+        sendResponse({ ok: false, error: e?.message || String(e) })
+      }
+      return
+    }
+
+    if (msg?.type === 'GET_MEET2NOTE_EXTENSION_TOKEN') {
+      try {
+        const token = await getMeet2NoteExtensionToken()
+        if (typeof token === 'string' && token.trim()) {
+          sendResponse({ ok: true, token })
+        } else {
+          sendResponse({ ok: false, error: 'Connect to Meet2Note before uploading.' })
+        }
+      } catch (e: any) {
+        captureException(e, { operation: 'GET_MEET2NOTE_EXTENSION_TOKEN' })
         sendResponse({ ok: false, error: e?.message || String(e) })
       }
       return
