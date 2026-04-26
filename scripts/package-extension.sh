@@ -16,8 +16,8 @@ if [ ! -f "${DIST_DIR}/manifest.json" ]; then
   exit 1
 fi
 
-SOURCE_VERSION="$(node -p "require('./manifest.json').version")"
-DIST_VERSION="$(node -p "require('./dist/manifest.json').version")"
+SOURCE_VERSION="$(python3 -c "import json; print(json.load(open('manifest.json'))['version'])")"
+DIST_VERSION="$(python3 -c "import json; print(json.load(open('dist/manifest.json'))['version'])")"
 
 if [ "${SOURCE_VERSION}" != "${DIST_VERSION}" ]; then
   echo "Version mismatch between manifest.json (${SOURCE_VERSION}) and dist/manifest.json (${DIST_VERSION}). Rebuild before packaging." >&2
