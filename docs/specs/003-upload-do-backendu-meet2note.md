@@ -50,7 +50,7 @@ Zakres tej specyfikacji przygotowuje implementację po stronie wtyczki. Backend 
 ## Backend
 
 1. Repozytorium backendu:
-   a) lokalnie: `/Users/pawel.walaszek/playground/recording-backend`,
+   a) lokalnie: `$HOME/playground/recording-backend`,
    b) GitHub: `pawel-walaszek/recording-backend`.
 
 2. Stos technologiczny backendu:

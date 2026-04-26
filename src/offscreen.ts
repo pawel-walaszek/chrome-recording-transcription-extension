@@ -376,33 +376,50 @@ function buildUploadInput(videoBlob: Blob, microphoneBlob: Blob | null): UploadR
 
 async function uploadRecordingUntilSuccess(input: UploadRecordingInput, attempt = 1): Promise<void> {
   uploadInProgress = true
-  pushUploadState(attempt === 1 ? 'uploading' : 'upload_retrying', { attempt })
+  let currentAttempt = attempt
 
-  try {
-    const result = await uploadRecordingOnce(input)
-    uploadInProgress = false
-    pushUploadState('uploaded', {
-      attempt,
-      recordingId: result.recordingId,
-      assets: result.assets
-    })
-    log('Upload completed', { recordingId: result.recordingId, assets: result.assets, attempt })
-  } catch (e) {
-    captureException(e, {
-      operation: 'uploadRecordingUntilSuccess',
-      attempt,
-      nextRetryMs: UPLOAD_RETRY_INTERVAL_MS
-    })
-    const nextRetryAt = Date.now() + UPLOAD_RETRY_INTERVAL_MS
-    log('Upload failed; retrying in 15 seconds', e)
-    pushUploadState('upload_retrying', {
-      attempt,
-      error: e instanceof Error ? e.message : String(e),
-      nextRetryAt
-    })
-    await sleep(UPLOAD_RETRY_INTERVAL_MS)
-    return uploadRecordingUntilSuccess(input, attempt + 1)
+  while (true) {
+    pushUploadState(currentAttempt === 1 ? 'uploading' : 'upload_retrying', { attempt: currentAttempt })
+
+    try {
+      const result = await uploadRecordingOnce(input)
+      uploadInProgress = false
+      pushUploadState('uploaded', {
+        attempt: currentAttempt,
+        recordingId: result.recordingId,
+        assets: result.assets
+      })
+      log('Upload completed', { recordingId: result.recordingId, assets: result.assets, attempt: currentAttempt })
+      return
+    } catch (e) {
+      captureException(e, {
+        operation: 'uploadRecordingUntilSuccess',
+        attempt: currentAttempt,
+        nextRetryMs: UPLOAD_RETRY_INTERVAL_MS
+      })
+      const nextRetryAt = Date.now() + UPLOAD_RETRY_INTERVAL_MS
+      log('Upload failed; retrying in 15 seconds', e)
+      pushUploadState('upload_retrying', {
+        attempt: currentAttempt,
+        error: e instanceof Error ? e.message : String(e),
+        nextRetryAt
+      })
+      await sleep(UPLOAD_RETRY_INTERVAL_MS)
+      currentAttempt += 1
+    }
   }
+}
+
+function stopMicrophoneRecorderAfterPrimaryError(): void {
+  resolveMicrophoneStop(null)
+  if (microphoneRecorder && microphoneRecorder.state !== 'inactive') {
+    try {
+      microphoneRecorder.stop()
+    } catch (e) {
+      log('microphone recorder stop after primary recorder error failed', e)
+    }
+  }
+  microphoneStoppedPromise = Promise.resolve(null)
 }
 
 function stopActiveRecorders(): void {
@@ -557,6 +574,7 @@ async function prepareAndRecord(
       clearTimeout(startTimeout)
       log('MediaRecorder error', e)
       captureException(e, { operation: 'MediaRecorder.onerror' })
+      stopMicrophoneRecorderAfterPrimaryError()
       try { baseStream.getTracks().forEach(t => t.stop()) } catch {}
       cleanupRecordingResources()
       mediaRecorder = null

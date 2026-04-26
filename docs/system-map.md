@@ -8,7 +8,7 @@ Rozszerzenie nagrywa bieżącą kartę i wysyła assety bezpośrednio do backend
 
 Docelowy backend dla uploadu i przetwarzania nagrań będzie rozwijany w powiązanym repozytorium `recording-backend`:
 
-1. Lokalnie: `/Users/pawel.walaszek/playground/recording-backend`.
+1. Lokalnie: `$HOME/playground/recording-backend`.
 2. GitHub: `pawel-walaszek/recording-backend`.
 3. Lokalny API base URL: `http://localhost:3000`.
 4. Dev/prod-like API base URL dla wtyczki: `https://meet2note.com`.
@@ -29,7 +29,7 @@ Docelowy backend dla uploadu i przetwarzania nagrań będzie rozwijany w powiąz
 | Diagnostyka Sentry | `src/diagnostics.ts`, `scripts/sentry-public-dsn.sh`, `Makefile` | Opcjonalnie inicjalizuje Sentry, jeśli build ma dostęp do publicznego DSN albo sekretów pozwalających pobrać DSN przez API. |
 | Build kontenerowy | `compose.yml`, `Makefile` | Domyślny lokalny punkt wejścia do builda i walidacji. Uruchamia npm w Docker Compose bez lokalnego Node.js. |
 | Build webpacka | `webpack.config.js`, `tsconfig.json` | Kompiluje entrypointy TypeScript i kopiuje statyczne pliki rozszerzenia do `dist/`. |
-| Backend uploadu | `/Users/pawel.walaszek/playground/recording-backend` | NestJS + Fastify API oraz React + Vite + Ant Design GUI dla uploadu, przetwarzania i udostępniania nagrań. |
+| Backend uploadu | `$HOME/playground/recording-backend` | NestJS + Fastify API oraz React + Vite + Ant Design GUI dla uploadu, przetwarzania i udostępniania nagrań. |
 
 ## API Uploadu
 

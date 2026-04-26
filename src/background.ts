@@ -128,6 +128,27 @@ function isUploadBlockingNewRecording(): boolean {
   return currentUploadStatus === 'uploading' || currentUploadStatus === 'upload_retrying'
 }
 
+function isUploadStatus(value: unknown): value is UploadStatus {
+  return value === 'idle' || value === 'uploading' || value === 'upload_retrying' || value === 'uploaded'
+}
+
+async function hydrateUploadStateFromSession(): Promise<void> {
+  try {
+    const sessionState = await chrome.storage.session.get([
+      'uploadStatus',
+      'uploadError',
+      'uploadNextRetryAt',
+      'uploadedRecordingId'
+    ])
+    if (isUploadStatus(sessionState?.uploadStatus)) {
+      currentUploadStatus = sessionState.uploadStatus
+    }
+    currentUploadError = typeof sessionState?.uploadError === 'string' ? sessionState.uploadError : null
+    currentUploadNextRetryAt = typeof sessionState?.uploadNextRetryAt === 'number' ? sessionState.uploadNextRetryAt : null
+    currentUploadedRecordingId = typeof sessionState?.uploadedRecordingId === 'string' ? sessionState.uploadedRecordingId : null
+  } catch {}
+}
+
 async function getMicPreferencesForOffscreen(): Promise<MicPreferences> {
   try {
     return await getMicPreferences()
@@ -414,6 +435,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true, recording: true, recordingStartedAt })
         return
       }
+      await hydrateUploadStateFromSession()
       if (isUploadBlockingNewRecording()) {
         sendResponse({ ok: false, error: 'Upload is still in progress' })
         return
@@ -429,7 +451,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           const streamId = await getStreamIdForTab(tabId)
           const micPreferences = await getMicPreferencesForOffscreen()
           const tab = await chrome.tabs.get(tabId).catch(() => null)
-          setUploadState('idle')
           const r = await postToOffscreen({
             type: 'OFFSCREEN_START',
             streamId,
@@ -473,6 +494,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             : null
           if (!recordingStartedAt) recordingStartedAt = Date.now()
           persistRecordingState(true, recordingStartedAt)
+          if (currentUploadStatus === 'uploaded') setUploadState('idle')
           setBadge(true, tabId)
           broadcastRecordingState({ warning: r.warning })
           sendResponse({ ok: true, micIncluded: r.micIncluded, warning: r.warning, recordingStartedAt })
@@ -534,10 +556,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           ? sessionState.recordingStartRequestedAt
           : null
         recordingStopping = !!sessionState?.recordingStopping
-        if (sessionState?.uploadStatus === 'uploading' ||
-            sessionState?.uploadStatus === 'upload_retrying' ||
-            sessionState?.uploadStatus === 'uploaded' ||
-            sessionState?.uploadStatus === 'idle') {
+        if (isUploadStatus(sessionState?.uploadStatus)) {
           currentUploadStatus = sessionState.uploadStatus
         }
         currentUploadError = typeof sessionState?.uploadError === 'string' ? sessionState.uploadError : null
