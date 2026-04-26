@@ -209,7 +209,7 @@ function App(): React.ReactElement {
 
     const storageListener = (
       changes: Record<string, chrome.storage.StorageChange>,
-      areaName: string
+      areaName: chrome.storage.AreaName
     ) => {
       if (areaName !== 'local') return
       if (changes[MIC_DEVICE_ID_KEY] || changes[MIC_LABEL_KEY]) {
