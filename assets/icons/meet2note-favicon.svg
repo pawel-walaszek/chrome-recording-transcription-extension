@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Meet2Note">
+  <rect width="64" height="64" rx="12" fill="#f8fafc"/>
+  <path
+    d="M12 19.5C12 17.567 13.567 16 15.5 16H40c1.933 0 3.5 1.567 3.5 3.5v7.25l10.15-5.075A1.625 1.625 0 0 1 56 23.128v17.744a1.625 1.625 0 0 1-2.35 1.453L43.5 37.25v7.25c0 1.933-1.567 3.5-3.5 3.5H15.5C13.567 48 12 46.433 12 44.5v-25Z"
+    fill="none"
+    stroke="#1677ff"
+    stroke-width="5"
+    stroke-linejoin="round"
+  />
+</svg>

@@ -19,6 +19,7 @@ services:
       - ./popup.html:/workspace/popup.html:ro
       - ./offscreen.html:/workspace/offscreen.html:ro
       - ./micsetup.html:/workspace/micsetup.html:ro
+      - ./assets:/workspace/assets:ro
       - ./src:/workspace/src:ro
       - ./scripts:/workspace/scripts:ro
       - ./dist:/workspace/dist
