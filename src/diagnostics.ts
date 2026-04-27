@@ -21,12 +21,17 @@ export function initDiagnostics(component: string): void {
 
   initialized = true
   try {
+    // MV3 contexts (service worker, offscreen, popup, callback page) are not a
+    // normal browser app. Keep Sentry in manual mode to avoid extension-specific
+    // warnings and unstable default integrations touching unsupported globals.
     Sentry.init({
       dsn: __SENTRY_DSN__,
       environment: __SENTRY_ENVIRONMENT__ || 'chrome-extension-dev',
       release: `google-meet-recorder@${getExtensionVersion()}`,
       sendDefaultPii: false,
       tracesSampleRate: 0,
+      skipBrowserExtensionCheck: true,
+      defaultIntegrations: false,
       maxBreadcrumbs: 20,
       beforeBreadcrumb(breadcrumb) {
         if (breadcrumb.category === 'console') return null

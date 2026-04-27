@@ -30,7 +30,7 @@ interface InitUploadResponse {
 
 const INIT_UPLOAD_TIMEOUT_MS = 30_000
 const COMPLETE_UPLOAD_TIMEOUT_MS = 30_000
-const ASSET_UPLOAD_TIMEOUT_MS = 5 * 60_000
+const ASSET_UPLOAD_TIMEOUT_MS = 20 * 60_000
 
 function httpError(operation: string, response: Response): Error {
   if (response.status === 401 || response.status === 403) {
