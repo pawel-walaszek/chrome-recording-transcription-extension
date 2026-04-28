@@ -9,7 +9,7 @@ import {
   SettingOutlined,
   VideoCameraOutlined
 } from '@ant-design/icons'
-import { Alert, Button, ConfigProvider, Divider, Flex, Space, Typography, theme } from 'antd'
+import { Alert, Button, ConfigProvider, Divider, Flex, Space, Tag, Typography, theme } from 'antd'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { captureException, initDiagnostics } from './diagnostics'
@@ -24,22 +24,19 @@ import {
   type Meet2NoteConnection
 } from './extensionAuth'
 import { getMicPreferences, MIC_DEVICE_ID_KEY, MIC_LABEL_KEY } from './micPreferences'
+import {
+  POPUP_RECORDING_HISTORY_LIMIT,
+  type RecordingHistoryItem,
+  type RecordingUploadStatus
+} from './recordingHistory'
 
 initDiagnostics('popup')
-
-type UploadStatus = 'idle' | 'uploading' | 'upload_retrying' | 'uploaded' | 'auth_required'
 
 interface RecordingStatus {
   recording: boolean
   starting: boolean
   stopping: boolean
   recordingStartedAt: number | null
-}
-
-interface UploadState {
-  status: UploadStatus
-  error: string | null
-  nextRetryAt: number | null
 }
 
 const { Text } = Typography
@@ -55,14 +52,6 @@ function formatDuration(ms: number): string {
   const ss = String(seconds).padStart(2, '0')
   if (!hours) return `${mm}:${ss}`
   return `${hours}:${mm}:${ss}`
-}
-
-function isUploadStatus(value: unknown): value is UploadStatus {
-  return value === 'idle' ||
-    value === 'uploading' ||
-    value === 'upload_retrying' ||
-    value === 'uploaded' ||
-    value === 'auth_required'
 }
 
 async function openMicSetupTab(): Promise<void> {
@@ -109,19 +98,7 @@ async function readMicButtonLabel(): Promise<{ label: string; title: string }> {
   }
 }
 
-function getRecordingText(recordingState: RecordingStatus, uploadState: UploadState, now: number): string {
-  if (uploadState.status === 'uploaded') return 'Uploaded'
-  if (uploadState.status === 'uploading') return 'Uploading...'
-  if (uploadState.status === 'auth_required') return 'Connect to Meet2Note to upload.'
-  if (uploadState.status === 'upload_retrying') {
-    const waitMs = typeof uploadState.nextRetryAt === 'number'
-      ? Math.max(0, uploadState.nextRetryAt - now)
-      : 0
-    const waitSeconds = Math.ceil(waitMs / 1000)
-    return uploadState.error
-      ? `Upload failed. Retrying in ${waitSeconds}s.`
-      : `Retrying upload in ${waitSeconds}s.`
-  }
+function getRecordingText(recordingState: RecordingStatus, now: number): string {
   if (recordingState.starting) return 'Starting recording...'
   if (recordingState.stopping) return 'Stopping recording...'
   if (recordingState.recording) {
@@ -131,13 +108,86 @@ function getRecordingText(recordingState: RecordingStatus, uploadState: UploadSt
   return 'Not recording'
 }
 
-function getRecordingButtonText(recordingState: RecordingStatus, uploadState: UploadState): string {
-  if (uploadState.status === 'uploading') return 'Uploading...'
-  if (uploadState.status === 'auth_required') return recordingState.recording ? 'Stop & Upload' : 'Start Recording'
-  if (uploadState.status === 'upload_retrying') return 'Retrying Upload...'
+function getRecordingButtonText(recordingState: RecordingStatus): string {
   if (recordingState.starting) return 'Starting...'
   if (recordingState.stopping) return 'Stopping...'
   return recordingState.recording ? 'Stop & Upload' : 'Start Recording'
+}
+
+function isRecordingUploadStatus(value: unknown): value is RecordingUploadStatus {
+  return value === 'queued' ||
+    value === 'uploading' ||
+    value === 'retrying' ||
+    value === 'uploaded' ||
+    value === 'auth_required' ||
+    value === 'failed'
+}
+
+function sanitizeRecordingHistoryItem(value: unknown): RecordingHistoryItem | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (typeof record.localId !== 'string' || !record.localId) return null
+  if (!isRecordingUploadStatus(record.status)) return null
+
+  const now = new Date().toISOString()
+  return {
+    localId: record.localId,
+    status: record.status,
+    title: typeof record.title === 'string' && record.title ? record.title : 'Browser recording',
+    meetingId: typeof record.meetingId === 'string' ? record.meetingId : undefined,
+    meetingTitle: typeof record.meetingTitle === 'string' ? record.meetingTitle : undefined,
+    tabUrl: typeof record.tabUrl === 'string' ? record.tabUrl : undefined,
+    startedAt: typeof record.startedAt === 'string' ? record.startedAt : now,
+    stoppedAt: typeof record.stoppedAt === 'string' ? record.stoppedAt : now,
+    durationMs: typeof record.durationMs === 'number' ? record.durationMs : 0,
+    videoBytes: typeof record.videoBytes === 'number' ? record.videoBytes : 0,
+    microphoneBytes: typeof record.microphoneBytes === 'number' ? record.microphoneBytes : 0,
+    attempt: typeof record.attempt === 'number' ? record.attempt : 0,
+    nextRetryAt: typeof record.nextRetryAt === 'number' ? record.nextRetryAt : null,
+    backendRecordingId: typeof record.backendRecordingId === 'string' ? record.backendRecordingId : null,
+    assets: Array.isArray(record.assets)
+      ? record.assets.filter((asset): asset is 'video_audio' | 'microphone' => asset === 'video_audio' || asset === 'microphone')
+      : [],
+    error: typeof record.error === 'string' ? record.error : null,
+    createdAt: typeof record.createdAt === 'string' ? record.createdAt : now,
+    updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : now
+  }
+}
+
+function sanitizeRecordingHistory(value: unknown): RecordingHistoryItem[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(sanitizeRecordingHistoryItem)
+    .filter((item): item is RecordingHistoryItem => !!item)
+    .slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+}
+
+function formatTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function getHistoryStatusText(item: RecordingHistoryItem, now: number): string {
+  if (item.status === 'queued') return 'Waiting to upload'
+  if (item.status === 'uploading') return item.attempt > 1 ? `Uploading, attempt ${item.attempt}` : 'Uploading...'
+  if (item.status === 'retrying') {
+    const waitMs = typeof item.nextRetryAt === 'number'
+      ? Math.max(0, item.nextRetryAt - now)
+      : 0
+    return `Retrying in ${Math.ceil(waitMs / 1000)}s`
+  }
+  if (item.status === 'uploaded') return item.backendRecordingId ? `Uploaded: ${item.backendRecordingId}` : 'Uploaded'
+  if (item.status === 'auth_required') return 'Reconnect to upload'
+  return item.error || 'Upload failed'
+}
+
+function getHistoryTagColor(status: RecordingUploadStatus): string {
+  if (status === 'uploaded') return 'success'
+  if (status === 'failed' || status === 'auth_required') return 'error'
+  if (status === 'retrying') return 'warning'
+  if (status === 'uploading') return 'processing'
+  return 'default'
 }
 
 function App(): React.ReactElement {
@@ -147,11 +197,7 @@ function App(): React.ReactElement {
     stopping: false,
     recordingStartedAt: null
   })
-  const [uploadState, setUploadState] = useState<UploadState>({
-    status: 'idle',
-    error: null,
-    nextRetryAt: null
-  })
+  const [recentRecordings, setRecentRecordings] = useState<RecordingHistoryItem[]>([])
   const [micStatus, setMicStatus] = useState('')
   const [micButton, setMicButton] = useState({
     label: 'Microphone Settings',
@@ -170,12 +216,12 @@ function App(): React.ReactElement {
   const inFlightRef = useRef(false)
 
   useEffect(() => {
-    if (!recordingState.recording && uploadState.status !== 'upload_retrying') return undefined
+    if (!recordingState.recording && !recentRecordings.some(item => item.status === 'retrying')) return undefined
 
     setNow(Date.now())
     const timerId = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timerId)
-  }, [recordingState.recording, uploadState.status])
+  }, [recordingState.recording, recentRecordings])
 
   const refreshMic = useCallback(async () => {
     const [button, status] = await Promise.all([
@@ -202,11 +248,7 @@ function App(): React.ReactElement {
           stopping: !!status?.stopping,
           recordingStartedAt: typeof startedAt === 'number' ? startedAt : null
         })
-        setUploadState({
-          status: isUploadStatus(status?.uploadStatus) ? status.uploadStatus : 'idle',
-          error: typeof status?.uploadError === 'string' ? status.uploadError : null,
-          nextRetryAt: typeof status?.uploadNextRetryAt === 'number' ? status.uploadNextRetryAt : null
-        })
+        setRecentRecordings(sanitizeRecordingHistory(status?.recentRecordings))
       } catch {
         setRecordingState({
           recording: false,
@@ -260,12 +302,8 @@ function App(): React.ReactElement {
         })
       }
 
-      if (msg?.type === 'UPLOAD_STATE' && isUploadStatus(msg.status)) {
-        setUploadState({
-          status: msg.status,
-          error: typeof msg.error === 'string' ? msg.error : null,
-          nextRetryAt: typeof msg.nextRetryAt === 'number' ? msg.nextRetryAt : null
-        })
+      if (msg?.type === 'UPLOAD_QUEUE_STATE') {
+        setRecentRecordings(sanitizeRecordingHistory(msg.items))
       }
     }
 
@@ -296,23 +334,26 @@ function App(): React.ReactElement {
   }, [refreshMic, refreshMeet2NoteConnection])
 
   const recordingText = useMemo(
-    () => getRecordingText(recordingState, uploadState, now),
-    [recordingState, uploadState, now]
+    () => getRecordingText(recordingState, now),
+    [recordingState, now]
   )
-  const recordingButtonText = getRecordingButtonText(recordingState, uploadState)
+  const recordingButtonText = getRecordingButtonText(recordingState)
   const recordingControlsAvailable = meet2NoteConnection.connected
-  const uploadBlocksAction = uploadState.status === 'uploading' || uploadState.status === 'upload_retrying'
   const connectionActionDisabled = recordingState.recording ||
     recordingState.starting ||
-    recordingState.stopping ||
-    uploadBlocksAction
+    recordingState.stopping
   const actionDisabled = !recordingControlsAvailable ||
     inFlight ||
     recordingState.starting ||
-    recordingState.stopping ||
-    uploadBlocksAction
+    recordingState.stopping
+  const authRequiredUpload = recentRecordings.find(item => item.status === 'auth_required')
   const connectionErrorMessage = meet2NoteConnection.authError ||
-    (uploadState.status === 'auth_required' ? uploadState.error : null)
+    authRequiredUpload?.error ||
+    null
+  const showRecentRecordings = recordingControlsAvailable || recentRecordings.length > 0
+  const recentRecordingsEmptyText = recordingControlsAvailable
+    ? 'No recordings from this browser yet'
+    : 'Connect to Meet2Note to upload recordings'
 
   const openSettings = useCallback(async () => {
     try {
@@ -477,7 +518,7 @@ function App(): React.ReactElement {
     }
   }, [recordingState.recording, startRecording, stopRecording])
 
-  const actionIcon = uploadBlocksAction || recordingState.starting || recordingState.stopping || inFlight
+  const actionIcon = recordingState.starting || recordingState.stopping || inFlight
     ? <LoadingOutlined />
     : recordingState.recording
       ? <CloudUploadOutlined />
@@ -577,17 +618,64 @@ function App(): React.ReactElement {
               {recordingButtonText}
             </Button>
             <Space size={6} align="start">
-              {uploadState.status === 'uploaded' ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
+              {recentRecordings.some(item => item.status === 'uploaded') ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
               <Text style={{ fontSize: 12, lineHeight: 1.25 }}>{recordingText}</Text>
             </Space>
-            {(uploadState.status === 'upload_retrying' || uploadState.status === 'auth_required') && uploadState.error ? (
-              <Alert
-                type={uploadState.status === 'auth_required' ? 'error' : 'warning'}
-                showIcon={false}
-                message={uploadState.error}
-                style={{ fontSize: 12, padding: '4px 8px' }}
-              />
-            ) : null}
+          </>
+        ) : null}
+        {showRecentRecordings ? (
+          <>
+            <Divider style={{ margin: '4px 0' }} />
+            <Flex vertical gap={6}>
+              <Text strong style={{ fontSize: 12, lineHeight: 1.2 }}>
+                Recent recordings
+              </Text>
+              {recentRecordings.length ? (
+                recentRecordings.map(item => (
+                  <Flex
+                    key={item.localId}
+                    vertical
+                    gap={3}
+                    style={{ borderTop: '1px solid #f0f0f0', paddingTop: 5 }}
+                  >
+                    <Flex align="center" justify="space-between" gap={6}>
+                      <Text
+                        title={item.title}
+                        style={{
+                          fontSize: 12,
+                          lineHeight: 1.2,
+                          maxWidth: 132,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {item.title}
+                      </Text>
+                      <Tag
+                        color={getHistoryTagColor(item.status)}
+                        style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: '16px' }}
+                      >
+                        {item.status}
+                      </Tag>
+                    </Flex>
+                    <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+                      {formatTime(item.startedAt)} · {formatDuration(item.durationMs)}
+                    </Text>
+                    <Text
+                      type={item.status === 'failed' || item.status === 'auth_required' ? 'danger' : 'secondary'}
+                      style={{ fontSize: 11, lineHeight: 1.2 }}
+                    >
+                      {getHistoryStatusText(item, now)}
+                    </Text>
+                  </Flex>
+                ))
+              ) : (
+                <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+                  {recentRecordingsEmptyText}
+                </Text>
+              )}
+            </Flex>
           </>
         ) : null}
       </Flex>

@@ -32,6 +32,7 @@ Użytkownik powinien widzieć oddzielnie:
    d) Ręczny eksport lokalnego pliku `.webm`.
    e) Ręczne kasowanie pojedynczych pozycji historii z UI, o ile nie okaże się konieczne dla ergonomii.
    f) Migracja starszych, już utraconych uploadów zapisanych tylko jako globalny `uploadStatus`.
+   g) Pobieranie w popupie pełnej historii z panelu Meet2Note, dopóki backend nie udostępnia listy nagrań dla `extensionToken`.
 
 ## Obecne zachowanie
 
@@ -215,6 +216,7 @@ interface UploadQueueSnapshotMessage {
    b) Widoczny limit w popupie: 5 najnowszych pozycji.
    c) Dane pozycji: tytuł, status, czas/długość, `recordingId` po sukcesie albo błąd/retry.
    d) UI ma być gęsty i czytelny w obecnej szerokości popupu.
+   e) Sekcja ma być widoczna także przy pustej lokalnej historii, żeby użytkownik widział, gdzie pojawią się statusy kolejki.
 
 3. Statusy użytkowe:
    a) `queued`: `Waiting to upload`.
@@ -310,6 +312,12 @@ make check
 
 5. Wznowienie `auth_required` po reconnect wymaga koordynacji storage i offscreen.
    a) Mitigacja: po zmianie tokenu background wysyła do offscreen komunikat wznowienia kolejki.
+
+6. Popup nie może jeszcze pobrać tej samej listy, którą pokazuje panel `/recordings`.
+   a) Obecny endpoint `GET /api/recordings` jest oparty o sesję webowego panelu.
+   b) Wtyczka ma trwały `extensionToken`, więc backend powinien udostępnić listę ostatnich nagrań po `Authorization: Bearer <extensionToken>`.
+   c) Backendowe rozszerzenie kontraktu jest opisane w issue [recording-backend#22](https://github.com/pawel-walaszek/recording-backend/issues/22).
+   d) Do czasu zmiany backendu popup pokazuje lokalną historię uploadów z tego profilu przeglądarki.
 
 ## Otwarte Pytania
 

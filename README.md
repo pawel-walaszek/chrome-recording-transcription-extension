@@ -19,7 +19,7 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 **Połączenie z kontem Meet2Note** - popup otwiera flow `Connect to Meet2Note`, zapisuje długotrwały token w `chrome.storage.local` i używa go przy uploadzie.
 
-**Retry uploadu** - jeśli upload się nie powiedzie, ponawia próbę co 15 sekund aż do sukcesu, bez lokalnego pobierania pliku.
+**Kolejka i retry uploadu** - zakończone nagrania trafiają do lokalnej kolejki, a pojedynczy upload w retry nie blokuje kolejnego nagrania.
 
 **Architektura MV3/Offscreen** - nagrywanie działa w ukrytym dokumencie offscreen.
 
@@ -31,7 +31,7 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 3. Service worker w tle tworzy i koordynuje dokument offscreen oraz pobiera właściwy `streamId` przechwytywania dla aktywnej karty.
 
-4. Strona offscreen przechwytuje kartę, nagrywa osobny asset mikrofonu, finalizuje bloby i wysyła je do backendu z tokenem użytkownika.
+4. Strona offscreen przechwytuje kartę, nagrywa osobny asset mikrofonu, finalizuje bloby i dodaje nagranie do sekwencyjnej kolejki uploadu.
 
 ## Wymagania
 
@@ -134,7 +134,7 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
    e) Po połączeniu popup pokazuje konto Meet2Note, a token użytkownika jest zapisany w `chrome.storage.local`.
    f) **Start Recording** rozpoczyna nagrywanie bieżącej karty (wideo + audio systemowe). Jeśli mikrofon jest dostępny, zostanie nagrany jako osobny asset.
    g) Podczas nagrywania ten sam przycisk zmienia się na **Stop & Upload**, finalizuje nagranie i wysyła assety do `https://meet2note.com`.
-   h) Status pod przyciskami pokazuje, czy nagrywanie trwa, czy trwa upload oraz kiedy nastąpi kolejna próba retry.
+   h) Lista ostatnich nagrań pokazuje status każdego uploadu oraz kiedy nastąpi kolejna próba retry.
 
 > Na aktywnym spotkaniu Google Meet rozszerzenie pokazuje znacznik `RDY`, a podczas nagrywania `REC`. Jeśli nagranie zostało rozpoczęte na karcie Meet, wyjście ze spotkania automatycznie zatrzymuje nagrywanie i uruchamia upload do backendu. Rozszerzenie nie zapisuje nagrań lokalnie przez Chrome Downloads API.
 
@@ -285,8 +285,8 @@ Odpowiedź:
 Pytanie: `Stop & Upload` kończy nagrywanie, ale upload się ponawia. Co zrobić?
 Odpowiedź:
 1. Sprawdź, czy `https://meet2note.com` działa i czy przeglądarka ma połączenie z siecią.
-2. Rozszerzenie ponawia pełną próbę uploadu co 15 sekund aż do sukcesu.
-3. Nie zamykaj przeglądarki ani nie przeładowuj rozszerzenia, bo gotowe bloby są trzymane w pamięci i mogą zostać utracone.
+2. Rozszerzenie ponawia pełną próbę uploadu tej pozycji co 15 sekund, a kolejne nagrania mogą w tym czasie trafiać do kolejki.
+3. Nie zamykaj przeglądarki ani nie przeładowuj rozszerzenia, bo gotowe bloby są trzymane w pamięci i mogą zostać oznaczone jako utracone.
 
 Pytanie: Popup pokazuje `Connect to Meet2Note` albo `Reconnect to Meet2Note`. Co zrobić?
 Odpowiedź:
