@@ -45,6 +45,10 @@ const { Text } = Typography
 const START_RECORDING_POPUP_DELAY_MS = 3_000
 const MEET2NOTE_BRAND_ICON_URL = chrome.runtime.getURL('icons/meet2note-favicon.svg')
 const POPUP_WIDTH = 252
+const HEADER_ACTION_ICON_STYLE: React.CSSProperties = {
+  fontSize: 16,
+  lineHeight: 1
+}
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
@@ -176,10 +180,8 @@ function PopupHeader({
         aria-label={actionTitle}
         icon={icon}
         onClick={onAction}
-        size="small"
         title={actionTitle}
         type="text"
-        style={{ width: 28, height: 28 }}
       />
     </Flex>
   )
@@ -541,7 +543,9 @@ function App(): React.ReactElement {
       <Flex vertical gap={8} style={{ width: POPUP_WIDTH, padding: 10 }}>
         <PopupHeader
           actionTitle={settingsOpen ? 'Save and close settings' : 'Settings'}
-          icon={settingsOpen ? <CheckOutlined /> : <SettingOutlined />}
+          icon={settingsOpen
+            ? <CheckOutlined style={HEADER_ACTION_ICON_STYLE} />
+            : <SettingOutlined style={HEADER_ACTION_ICON_STYLE} />}
           onAction={() => setSettingsOpen(open => !open)}
         />
         <Divider style={{ margin: '2px 0 4px' }} />
