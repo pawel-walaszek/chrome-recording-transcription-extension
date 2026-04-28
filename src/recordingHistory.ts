@@ -5,6 +5,9 @@ export type RecordingUploadStatus =
   | 'uploading'
   | 'retrying'
   | 'uploaded'
+  | 'pending'
+  | 'processing'
+  | 'ready'
   | 'auth_required'
   | 'failed'
 
@@ -47,7 +50,11 @@ const NON_TERMINAL_STATUSES = new Set<RecordingUploadStatus>([
 ])
 
 export function isTerminalRecordingStatus(status: RecordingUploadStatus): boolean {
-  return status === 'uploaded' || status === 'failed'
+  return status === 'uploaded' ||
+    status === 'pending' ||
+    status === 'processing' ||
+    status === 'ready' ||
+    status === 'failed'
 }
 
 export function generateRecordingLocalId(): string {
@@ -82,6 +89,9 @@ function isRecordingUploadStatus(value: unknown): value is RecordingUploadStatus
     value === 'uploading' ||
     value === 'retrying' ||
     value === 'uploaded' ||
+    value === 'pending' ||
+    value === 'processing' ||
+    value === 'ready' ||
     value === 'auth_required' ||
     value === 'failed'
 }

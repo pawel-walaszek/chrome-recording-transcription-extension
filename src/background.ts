@@ -1,15 +1,22 @@
 // src/background.ts
 
 import { captureException, initDiagnostics } from './diagnostics'
-import { getMeet2NoteExtensionToken } from './extensionAuth'
+import {
+  getMeet2NoteExtensionToken,
+  isMeet2NoteAuthError,
+  markMeet2NoteReconnectRequired,
+  MEET2NOTE_EXTENSION_TOKEN_KEY
+} from './extensionAuth'
 import { clearMicPreferences, getMicPreferences, type MicPreferences } from './micPreferences'
 import {
   markIncompleteRecordingsFailed,
   normalizeRecordingHistory,
   POPUP_RECORDING_HISTORY_LIMIT,
   readRecordingHistory,
+  upsertRecordingHistoryItem,
   type RecordingHistoryItem
 } from './recordingHistory'
+import { listMeet2NoteRecordings, type BackendRecordingListItem } from './recordingsClient'
 
 initDiagnostics('background')
 
@@ -25,7 +32,10 @@ let autoStopMeetTabId: number | null = null
 let recordingStartedAt: number | null = null
 const meetTabsInMeeting = new Set<number>()
 let recentRecordings: RecordingHistoryItem[] = []
+let backendRecordingsRefreshPromise: Promise<void> | null = null
+let backendRecordingsLastRefreshedAt = 0
 const RECORDER_CONTEXT_INTERRUPTED_MESSAGE = 'Upload was interrupted by an extension restart or refresh.'
+const BACKEND_RECORDINGS_REFRESH_THROTTLE_MS = 15_000
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 const DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS = 15_000
@@ -103,6 +113,111 @@ async function hydrateRecentRecordings(): Promise<RecordingHistoryItem[]> {
     return recentRecordings
   } catch {}
   return recentRecordings
+}
+
+async function refreshRecentRecordingsFromBackend(): Promise<RecordingHistoryItem[]> {
+  const localHistory = await readRecordingHistory()
+  const backendHistory = await readBackendRecordingHistory()
+  recentRecordings = mergeRecordingHistory(localHistory, backendHistory).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+  return recentRecordings
+}
+
+function backendRecordingToHistoryItem(recording: BackendRecordingListItem): RecordingHistoryItem {
+  return {
+    localId: `backend:${recording.id}`,
+    status: recording.status,
+    title: recording.title,
+    startedAt: recording.createdAt,
+    stoppedAt: recording.updatedAt || recording.createdAt,
+    durationMs: recording.durationMs ?? 0,
+    videoBytes: 0,
+    microphoneBytes: 0,
+    attempt: 0,
+    nextRetryAt: null,
+    backendRecordingId: recording.id,
+    assets: [],
+    error: recording.status === 'failed' ? 'Processing failed in Meet2Note.' : null,
+    createdAt: recording.createdAt,
+    updatedAt: recording.updatedAt || recording.createdAt
+  }
+}
+
+async function readBackendRecordingHistory(): Promise<RecordingHistoryItem[]> {
+  const token = await getMeet2NoteExtensionToken().catch(() => null)
+  if (!token) return []
+
+  try {
+    const recordings = await listMeet2NoteRecordings(token)
+    return recordings.map(backendRecordingToHistoryItem)
+  } catch (e) {
+    if (isMeet2NoteAuthError(e)) {
+      await markMeet2NoteReconnectRequired(e.message).catch(() => {})
+    }
+    bglog('Backend recordings list failed', e)
+    captureException(e, { operation: 'readBackendRecordingHistory' })
+    return []
+  }
+}
+
+function mergeRecordingHistory(
+  localHistory: RecordingHistoryItem[],
+  backendHistory: RecordingHistoryItem[]
+): RecordingHistoryItem[] {
+  const byLocalId = new Map<string, RecordingHistoryItem>()
+  const byBackendId = new Map<string, string>()
+
+  for (const item of normalizeRecordingHistory(localHistory)) {
+    byLocalId.set(item.localId, item)
+    if (item.backendRecordingId) byBackendId.set(item.backendRecordingId, item.localId)
+  }
+
+  for (const backendItem of normalizeRecordingHistory(backendHistory)) {
+    const backendId = backendItem.backendRecordingId
+    const existingLocalId = backendId ? byBackendId.get(backendId) : undefined
+    if (existingLocalId) {
+      const existing = byLocalId.get(existingLocalId)
+      if (existing) {
+        byLocalId.set(existingLocalId, {
+          ...existing,
+          status: backendItem.status,
+          title: mergedRecordingTitle(existing, backendItem),
+          durationMs: backendItem.durationMs > 0 ? backendItem.durationMs : existing.durationMs,
+          backendRecordingId: backendId,
+          error: backendItem.error,
+          updatedAt: backendItem.updatedAt
+        })
+        continue
+      }
+    }
+    byLocalId.set(backendItem.localId, backendItem)
+  }
+
+  return normalizeRecordingHistory(Array.from(byLocalId.values()))
+}
+
+function mergedRecordingTitle(existing: RecordingHistoryItem, backendItem: RecordingHistoryItem): string {
+  if (backendItem.title && (!existing.title || existing.title === 'Browser recording')) {
+    return backendItem.title
+  }
+  return existing.title || backendItem.title
+}
+
+function scheduleBackendRecordingsRefresh(): void {
+  const now = Date.now()
+  if (backendRecordingsRefreshPromise) return
+  if (now - backendRecordingsLastRefreshedAt < BACKEND_RECORDINGS_REFRESH_THROTTLE_MS) return
+
+  backendRecordingsRefreshPromise = refreshRecentRecordingsFromBackend()
+    .then(() => {
+      backendRecordingsLastRefreshedAt = Date.now()
+      broadcastUploadQueueState()
+    })
+    .catch((e: any) => {
+      captureException(e, { operation: 'scheduleBackendRecordingsRefresh' })
+    })
+    .finally(() => {
+      backendRecordingsRefreshPromise = null
+    })
 }
 
 function broadcastUploadQueueState(items = recentRecordings): void {
@@ -520,6 +635,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         recordingStopping = !!sessionState?.recordingStopping
         await hydrateRecentRecordings()
       } catch {}
+      scheduleBackendRecordingsRefresh()
       sendResponse({
         recording: lastKnownRecording,
         recordingStartedAt,
@@ -557,6 +673,55 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       return
     }
+
+    if (msg?.type === 'UPSERT_RECORDING_HISTORY_ITEM') {
+      const [item] = normalizeRecordingHistory([msg.item])
+      if (!item) {
+        sendResponse({ ok: false, error: 'Invalid recording history item' })
+        return
+      }
+
+      try {
+        const localHistory = await upsertRecordingHistoryItem(item)
+        recentRecordings = localHistory.slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+        broadcastUploadQueueState()
+        sendResponse({ ok: true, items: recentRecordings })
+
+        if (item.status === 'uploaded' && item.backendRecordingId) {
+          scheduleBackendRecordingsRefresh()
+        }
+      } catch (e: any) {
+        captureException(e, { operation: 'UPSERT_RECORDING_HISTORY_ITEM' })
+        sendResponse({ ok: false, error: e?.message || String(e) })
+      }
+      return
+    }
+
+    if (msg?.type === 'READ_RECORDING_HISTORY') {
+      try {
+        await hydrateRecentRecordings()
+        scheduleBackendRecordingsRefresh()
+        sendResponse({ ok: true, items: recentRecordings })
+      } catch (e: any) {
+        captureException(e, { operation: 'READ_RECORDING_HISTORY' })
+        sendResponse({ ok: false, error: e?.message || String(e), items: recentRecordings })
+      }
+      return
+    }
+
+    if (msg?.type === 'MARK_MEET2NOTE_RECONNECT_REQUIRED') {
+      const message = typeof msg.message === 'string' && msg.message.trim()
+        ? msg.message
+        : 'Connect to Meet2Note before uploading.'
+      try {
+        await markMeet2NoteReconnectRequired(message)
+        sendResponse({ ok: true })
+      } catch (e: any) {
+        captureException(e, { operation: 'MARK_MEET2NOTE_RECONNECT_REQUIRED' })
+        sendResponse({ ok: false, error: e?.message || String(e) })
+      }
+      return
+    }
   })().catch((err) => {
     console.error('[background] top-level error', err)
     captureException(err, { operation: 'runtime.onMessage' })
@@ -564,6 +729,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   })
 
   return true
+})
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return
+  const tokenChange = changes[MEET2NOTE_EXTENSION_TOKEN_KEY]
+  if (!tokenChange || typeof tokenChange.newValue !== 'string' || !tokenChange.newValue.trim() || !offscreenPort) return
+
+  postToOffscreen({ type: 'OFFSCREEN_REQUEUE_AUTH_REQUIRED_UPLOADS' }).catch((e) => {
+    bglog('OFFSCREEN_REQUEUE_AUTH_REQUIRED_UPLOADS failed', e)
+    captureException(e, { operation: 'OFFSCREEN_REQUEUE_AUTH_REQUIRED_UPLOADS' })
+  })
 })
 
 chrome.runtime.onSuspend?.addListener(async () => {
@@ -579,6 +755,7 @@ async function initializeRecentRecordings(): Promise<void> {
   }
 
   await hydrateRecentRecordings()
+  scheduleBackendRecordingsRefresh()
 }
 
 void initializeRecentRecordings().catch((e) => {

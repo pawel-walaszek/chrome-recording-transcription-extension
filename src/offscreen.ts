@@ -3,19 +3,14 @@
 import { captureException, captureMessage, initDiagnostics } from './diagnostics'
 import {
   isMeet2NoteAuthError,
-  markMeet2NoteReconnectRequired,
-  MEET2NOTE_EXTENSION_TOKEN_KEY,
   Meet2NoteAuthError
 } from './extensionAuth'
 import type { MicPreferences } from './micPreferences'
 import { uploadRecordingOnce, type UploadRecordingInput } from './uploadClient'
 import {
   generateRecordingLocalId,
-  POPUP_RECORDING_HISTORY_LIMIT,
-  readRecordingHistory,
   type RecordingHistoryItem,
-  type RecordingUploadStatus,
-  upsertRecordingHistoryItem
+  type RecordingUploadStatus
 } from './recordingHistory'
 
 initDiagnostics('offscreen')
@@ -118,22 +113,14 @@ function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
   return historyItem
 }
 
-async function publishUploadQueueState(items?: RecordingHistoryItem[]): Promise<void> {
-  const history = items ?? await readRecordingHistory().catch(() => [])
-  try {
-    getPort().postMessage({
-      type: 'UPLOAD_QUEUE_STATE',
-      items: history.slice(0, POPUP_RECORDING_HISTORY_LIMIT)
-    })
-  } catch (e) {
-    log('Upload queue state broadcast failed', e)
-    captureException(e, { operation: 'publishUploadQueueState' })
-  }
-}
-
 async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
-  const items = await upsertRecordingHistoryItem(toHistoryItem(entry))
-  await publishUploadQueueState(items)
+  const response = await chrome.runtime.sendMessage({
+    type: 'UPSERT_RECORDING_HISTORY_ITEM',
+    item: toHistoryItem(entry)
+  })
+  if (response?.ok === false) {
+    throw new Error(response.error || 'Recording history update failed')
+  }
 }
 
 let activeStreams = new Set<MediaStream>()
@@ -608,7 +595,10 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
     } catch (e) {
       if (isMeet2NoteAuthError(e)) {
         const message = e.message || 'Connect to Meet2Note before uploading.'
-        await markMeet2NoteReconnectRequired(message).catch(() => {})
+        await chrome.runtime.sendMessage({
+          type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
+          message
+        }).catch(() => {})
         await updateQueueEntry(entry, 'auth_required', {
           error: message,
           nextRetryAt: null
@@ -1107,12 +1097,18 @@ rpcPort.onMessage.addListener(async (msg: any) => {
         const res = await (chrome.storage as any)?.session?.get?.(['recording'])
         recording = !!res?.recording
       } catch {}
+      const historyResponse = await chrome.runtime.sendMessage({ type: 'READ_RECORDING_HISTORY' }).catch(() => null)
       return respond(msg, {
         recording,
         uploadWorkerRunning,
         queuedUploads: uploadQueue.length,
-        items: await readRecordingHistory().catch(() => [])
+        items: Array.isArray(historyResponse?.items) ? historyResponse.items : uploadQueue.map(toHistoryItem)
       })
+    }
+
+    if (msg?.type === 'OFFSCREEN_REQUEUE_AUTH_REQUIRED_UPLOADS') {
+      await requeueAuthRequiredUploads()
+      return respond(msg, { ok: true })
     }
 
     if (msg?.type === 'DIAG_ECHO') {
@@ -1134,15 +1130,3 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } catch (e) { sendResponse({ ok: false, error: String(e) }) }
   return false
 })
-
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'local') return
-  const tokenChange = changes[MEET2NOTE_EXTENSION_TOKEN_KEY]
-  if (!tokenChange || typeof tokenChange.newValue !== 'string' || !tokenChange.newValue.trim()) return
-  void requeueAuthRequiredUploads().catch((e) => {
-    log('resume auth-required uploads after token change failed', e)
-    captureException(e, { operation: 'storage.onChanged.resumeAuthUploads' })
-  })
-})
-
-void publishUploadQueueState().catch(() => {})

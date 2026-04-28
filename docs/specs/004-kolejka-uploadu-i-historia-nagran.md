@@ -32,7 +32,7 @@ Użytkownik powinien widzieć oddzielnie:
    d) Ręczny eksport lokalnego pliku `.webm`.
    e) Ręczne kasowanie pojedynczych pozycji historii z UI, o ile nie okaże się konieczne dla ergonomii.
    f) Migracja starszych, już utraconych uploadów zapisanych tylko jako globalny `uploadStatus`.
-   g) Pobieranie w popupie pełnej historii z panelu Meet2Note, dopóki backend nie udostępnia listy nagrań dla `extensionToken`.
+   g) Pełny ekran zarządzania nagraniami z panelu Meet2Note w popupie.
 
 ## Obecne zachowanie
 
@@ -180,9 +180,10 @@ interface UploadQueueEntry extends RecordingHistoryItem {
 2. `src/background.ts`:
    a) usuwa blokadę startu zależną od uploadu,
    b) nadal koordynuje aktywne nagrywanie, badge i offscreen,
-   c) hydratuje historię z `chrome.storage.local`,
+   c) hydratuje historię z `chrome.storage.local` i listy backendowej,
    d) przekazuje popupowi stan nagrywania i snapshot ostatnich nagrań,
-   e) po reconnect/token change prosi offscreen o wznowienie pozycji `auth_required`, jeśli ma bloby.
+   e) po reconnect/token change prosi offscreen o wznowienie pozycji `auth_required`, jeśli ma bloby,
+   f) wykonuje operacje `chrome.storage`, bo offscreen document nie ma pełnego dostępu do API Chrome.
 
 3. `src/popup.tsx`:
    a) przestaje używać pojedynczego `UploadState` jako źródła blokady startu,
@@ -218,14 +219,18 @@ interface UploadQueueSnapshotMessage {
    c) Dane pozycji: tytuł, status, czas/długość, `recordingId` po sukcesie albo błąd/retry.
    d) UI ma być gęsty i czytelny w obecnej szerokości popupu.
    e) Sekcja ma być widoczna także przy pustej lokalnej historii, żeby użytkownik widział, gdzie pojawią się statusy kolejki.
+   f) Jeśli konto jest połączone, lista scala lokalną kolejkę uploadu z ostatnimi nagraniami zwróconymi przez backendowe `GET /api/recordings`.
 
 3. Statusy użytkowe:
    a) `queued`: `Waiting to upload`.
    b) `uploading`: `Uploading...`.
    c) `retrying`: `Retrying in Ns`.
    d) `uploaded`: `Uploaded`.
-   e) `auth_required`: `Reconnect to upload`.
-   f) `failed`: krótki komunikat błędu.
+   e) `pending`: `Waiting for processing`.
+   f) `processing`: `Processing in Meet2Note`.
+   g) `ready`: `Ready in Meet2Note`.
+   h) `auth_required`: `Reconnect to upload`.
+   i) `failed`: krótki komunikat błędu.
 
 4. Reconnect:
    a) Jeśli istnieje pozycja `auth_required`, popup pokazuje błąd przy sekcji połączenia.
@@ -314,11 +319,9 @@ make check
 5. Wznowienie `auth_required` po reconnect wymaga koordynacji storage i offscreen.
    a) Mitigacja: po zmianie tokenu background wysyła do offscreen komunikat wznowienia kolejki.
 
-6. Popup nie może jeszcze pobrać tej samej listy, którą pokazuje panel `/recordings`.
-   a) Obecny endpoint `GET /api/recordings` jest oparty o sesję webowego panelu.
-   b) Wtyczka ma trwały `extensionToken`, więc backend powinien udostępnić listę ostatnich nagrań po `Authorization: Bearer <extensionToken>`.
-   c) Backendowe rozszerzenie kontraktu jest opisane w issue [recording-backend#22](https://github.com/pawel-walaszek/recording-backend/issues/22).
-   d) Do czasu zmiany backendu popup pokazuje lokalną historię uploadów z tego profilu przeglądarki.
+6. Popup pobiera tę samą listę, którą pokazuje panel `/recordings`, przez `GET /api/recordings` z `Authorization: Bearer <extensionToken>`.
+   a) Lokalna historia nadal jest potrzebna dla stanów kolejki przed zakończeniem uploadu.
+   b) Po sukcesie wpis lokalny jest scalany z backendowym `recordingId` i statusem przetwarzania.
 
 ## Otwarte Pytania
 
