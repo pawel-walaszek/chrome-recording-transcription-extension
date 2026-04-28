@@ -9,7 +9,6 @@ import type { MicPreferences } from './micPreferences'
 import { uploadRecordingOnce, type UploadRecordingInput } from './uploadClient'
 import {
   generateRecordingLocalId,
-  POPUP_RECORDING_HISTORY_LIMIT,
   type RecordingHistoryItem,
   type RecordingUploadStatus
 } from './recordingHistory'
@@ -114,19 +113,6 @@ function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
   return historyItem
 }
 
-async function publishUploadQueueState(items?: RecordingHistoryItem[]): Promise<void> {
-  const history = items ?? uploadQueue.map(toHistoryItem)
-  try {
-    getPort().postMessage({
-      type: 'UPLOAD_QUEUE_STATE',
-      items: history.slice(0, POPUP_RECORDING_HISTORY_LIMIT)
-    })
-  } catch (e) {
-    log('Upload queue state broadcast failed', e)
-    captureException(e, { operation: 'publishUploadQueueState' })
-  }
-}
-
 async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
   const response = await chrome.runtime.sendMessage({
     type: 'UPSERT_RECORDING_HISTORY_ITEM',
@@ -135,10 +121,6 @@ async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
   if (response?.ok === false) {
     throw new Error(response.error || 'Recording history update failed')
   }
-  const items = Array.isArray(response?.items)
-    ? response.items as RecordingHistoryItem[]
-    : [toHistoryItem(entry)]
-  await publishUploadQueueState(items)
 }
 
 let activeStreams = new Set<MediaStream>()

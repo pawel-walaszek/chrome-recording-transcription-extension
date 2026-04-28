@@ -181,7 +181,7 @@ function mergeRecordingHistory(
           ...existing,
           status: backendItem.status,
           title: mergedRecordingTitle(existing, backendItem),
-          durationMs: backendItem.durationMs || existing.durationMs,
+          durationMs: backendItem.durationMs > 0 ? backendItem.durationMs : existing.durationMs,
           backendRecordingId: backendId,
           error: backendItem.error,
           updatedAt: backendItem.updatedAt
