@@ -19,12 +19,13 @@ Docelowy backend dla uploadu i przetwarzania nagrań będzie rozwijany w powiąz
 | Komponent | Ścieżka | Rola |
 | --- | --- | --- |
 | Manifest | `manifest.json` | Deklaruje metadane MV3, uprawnienia, worker tła i dostępne zasoby. |
-| Popup | `popup.html`, `src/popup.tsx` | Interfejs React + Ant Design do otwierania ustawień mikrofonu, startu/stopu nagrywania oraz podglądu historii uploadów. |
+| Popup | `popup.html`, `src/popup.tsx` | Interfejs React + Ant Design do otwierania ustawień mikrofonu, startu/stopu nagrywania oraz podglądu historii uploadów i nagrań z Meet2Note. |
 | Callback Meet2Note | `connect-callback.html`, `src/connectCallback.ts` | Kończy flow połączenia z backendu, waliduje `state`, wymienia jednorazowy `code` na token i zapisuje go lokalnie. |
 | Watcher Google Meet | `src/meetWatcher.ts`, `manifest.json` | Content script na `meet.google.com`, który wykrywa aktywne spotkanie i opuszczenie spotkania. |
 | Service worker tła | `src/background.ts` | Koordynuje przechwytywanie karty, cykl życia dokumentu offscreen, stan nagrywania/uploadu i znaczniki. |
 | Nagrywarka offscreen | `offscreen.html`, `src/offscreen.ts` | Przechwytuje media z karty, nagrywa osobny asset mikrofonu, finalizuje bloby i wysyła je do backendu. |
 | Klient uploadu | `src/uploadClient.ts` | Wykonuje kontrakt uploadu backendu: `/init`, upload assetów, `/complete`. |
+| Klient nagrań | `src/recordingsClient.ts` | Pobiera listę nagrań z backendu przez `GET /api/recordings` z `extensionToken`. |
 | Historia nagrań | `src/recordingHistory.ts` | Definiuje model lokalnej historii uploadów i helpery `chrome.storage.local`. |
 | Strona konfiguracji mikrofonu | `micsetup.html`, `src/micsetup.tsx` | Widoczna strona React + Ant Design używana do nadania uprawnienia mikrofonu, wyboru urządzenia i zapisu konfiguracji w `chrome.storage.local`. |
 | Preferencje mikrofonu | `src/micPreferences.ts` | Wspólne klucze i helpery `chrome.storage.local` dla zapisanego wyboru mikrofonu. |
@@ -49,6 +50,7 @@ Ten opis dokumentuje aktualne ustalenia integracyjne między wtyczką i backende
 9. Zakończone nagrania trafiają do sekwencyjnej kolejki uploadu w offscreen; jeden aktywny upload nie blokuje startu kolejnego nagrania.
 10. Jeśli upload się nie powiedzie, offscreen ponawia pełny upload konkretnej pozycji co 15 sekund, bez lokalnego zapisu pliku.
 11. Jeśli backend zwróci `401` albo `403`, zwykły retry tej pozycji jest przerywany, token jest czyszczony i popup wymaga ponownego połączenia z Meet2Note.
+12. Popup scala lokalną historię kolejki z listą nagrań z backendu, jeśli konto jest połączone z Meet2Note.
 
 ## Granice uruchomieniowe
 

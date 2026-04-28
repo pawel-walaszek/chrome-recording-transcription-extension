@@ -21,6 +21,8 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 **Kolejka i retry uploadu** - zakończone nagrania trafiają do lokalnej kolejki, a pojedynczy upload w retry nie blokuje kolejnego nagrania.
 
+**Ostatnie nagrania** - popup scala lokalne statusy kolejki z listą nagrań pobraną z Meet2Note.
+
 **Architektura MV3/Offscreen** - nagrywanie działa w ukrytym dokumencie offscreen.
 
 ## Jak to działa
@@ -88,6 +90,7 @@ Otwórz Google Meet i kliknij ikonę rozszerzenia:
 1. **Connect to Meet2Note** - otwiera backendowy flow połączenia z kontem użytkownika.
 2. **Enable Microphone / Microphone Settings** - otwiera konfigurację mikrofonu i pozwala wybrać urządzenie wejściowe.
 3. **Start Recording / Stop & Upload** - nagrywa kartę i wysyła wynik do `https://meet2note.com`.
+4. **Recent recordings** - pokazuje lokalne uploady oraz ostatnie nagrania widoczne w Meet2Note.
 
 ## Instalacja i budowanie
 
@@ -161,6 +164,7 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 │  ├─ offscreen.ts      # uruchamia nagrywarkę i wysyła assety do backendu
 │  ├─ popup.tsx         # UI popupu w React + Ant Design: mikrofon, start/stop
 │  ├─ micPreferences.ts # wspólne helpery zapisu wyboru mikrofonu
+│  ├─ recordingsClient.ts # klient listy nagrań Meet2Note
 │  ├─ uploadClient.ts   # klient kontraktu uploadu backendu
 │  └─ micsetup.tsx      # strona React + Ant Design do nadania uprawnienia i wyboru mikrofonu
 └─ dist/                # wygenerowany wynik builda

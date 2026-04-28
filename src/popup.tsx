@@ -134,16 +134,19 @@ function getHistoryStatusText(item: RecordingHistoryItem, now: number): string {
       : 0
     return `Retrying in ${Math.ceil(waitMs / 1000)}s`
   }
+  if (item.status === 'pending') return 'Waiting for processing'
+  if (item.status === 'processing') return 'Processing in Meet2Note'
+  if (item.status === 'ready') return 'Ready in Meet2Note'
   if (item.status === 'uploaded') return item.backendRecordingId ? `Uploaded: ${item.backendRecordingId}` : 'Uploaded'
   if (item.status === 'auth_required') return 'Reconnect to upload'
   return item.error || 'Upload failed'
 }
 
 function getHistoryTagColor(status: RecordingUploadStatus): string {
-  if (status === 'uploaded') return 'success'
+  if (status === 'uploaded' || status === 'ready') return 'success'
   if (status === 'failed' || status === 'auth_required') return 'error'
   if (status === 'retrying') return 'warning'
-  if (status === 'uploading') return 'processing'
+  if (status === 'uploading' || status === 'processing' || status === 'pending') return 'processing'
   return 'default'
 }
 
