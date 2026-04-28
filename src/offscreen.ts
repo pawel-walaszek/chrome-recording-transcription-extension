@@ -621,16 +621,30 @@ function saveRecorderChunk(asset: 'video_audio' | 'microphone', blob: Blob, mime
 }
 
 async function persistHistoryItem(item: RecordingHistoryItem): Promise<RecordingHistoryItem[]> {
-  const response = await chrome.runtime.sendMessage({
-    type: 'UPSERT_RECORDING_HISTORY_ITEM',
-    item
-  })
-  if (response?.ok === false) {
-    throw new Error(response.error || 'Recording history update failed')
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'UPSERT_RECORDING_HISTORY_ITEM',
+      item
+    })
+    if (response?.ok === false) {
+      captureMessage('Recording history update rejected by background; continuing with local spool state.', 'warning', {
+        operation: 'persistHistoryItem',
+        status: item.status,
+        localId: item.localId
+      })
+      return [item]
+    }
+    return Array.isArray(response?.items)
+      ? response.items as RecordingHistoryItem[]
+      : [item]
+  } catch (e) {
+    captureException(e, {
+      operation: 'persistHistoryItem',
+      status: item.status,
+      localId: item.localId
+    })
+    return [item]
   }
-  return Array.isArray(response?.items)
-    ? response.items as RecordingHistoryItem[]
-    : [item]
 }
 
 async function updateQueueEntry(

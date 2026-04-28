@@ -184,6 +184,10 @@ function sanitizeHistoryItem(value: unknown): RecordingHistoryItem | null {
   }
 }
 
+export function normalizeRecordingHistoryItem(value: unknown): RecordingHistoryItem | null {
+  return sanitizeHistoryItem(value)
+}
+
 export function normalizeRecordingHistory(value: unknown): RecordingHistoryItem[] {
   if (!Array.isArray(value)) return []
   const unique = new Map<string, RecordingHistoryItem>()

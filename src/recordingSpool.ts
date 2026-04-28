@@ -2,6 +2,7 @@ import type {
   RecordingHistoryItem,
   RecordingUploadAsset
 } from './recordingHistory'
+import { normalizeRecordingHistoryItem } from './recordingHistory'
 
 const DB_NAME = 'meet2noteRecordingSpool'
 const DB_VERSION = 1
@@ -105,6 +106,22 @@ function countsAgainstSpoolCapacity(record: RecordingSpoolRecord): boolean {
     (record.status === 'failed' && record.failureReason === 'auth_required')
 }
 
+function normalizeSpoolRecord(record: RecordingSpoolRecord): RecordingSpoolRecord {
+  const normalizedHistory = normalizeRecordingHistoryItem(record)
+  if (!normalizedHistory) return record
+  return {
+    ...record,
+    ...normalizedHistory,
+    schemaVersion: typeof record.schemaVersion === 'number' ? record.schemaVersion : SPOOL_SCHEMA_VERSION,
+    videoMimeType: typeof record.videoMimeType === 'string' && record.videoMimeType
+      ? record.videoMimeType
+      : 'video/webm',
+    microphoneMimeType: typeof record.microphoneMimeType === 'string' && record.microphoneMimeType
+      ? record.microphoneMimeType
+      : null
+  }
+}
+
 export async function createSpoolRecording(record: RecordingSpoolRecord): Promise<void> {
   await enqueueSpoolWrite(async () => {
     const db = await openSpoolDb()
@@ -160,7 +177,7 @@ export async function listSpoolRecordings(): Promise<RecordingSpoolRecord[]> {
   const result = await requestResult<RecordingSpoolRecord[]>(
     tx.objectStore(RECORDINGS_STORE).getAll()
   )
-  return result
+  return result.map(normalizeSpoolRecord)
 }
 
 export async function listUploadableSpoolRecordings(): Promise<RecordingSpoolRecord[]> {
