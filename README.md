@@ -19,7 +19,7 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 **Połączenie z kontem Meet2Note** - popup otwiera flow `Connect to Meet2Note`, zapisuje długotrwały token w `chrome.storage.local` i używa go przy uploadzie.
 
-**Kolejka i retry uploadu** - zakończone nagrania trafiają do lokalnej kolejki, a pojedynczy upload w retry nie blokuje kolejnego nagrania.
+**Trwała kolejka i retry uploadu** - nagrania są zapisywane lokalnie w IndexedDB i pozostają w kolejce, jeśli backend, sieć albo token wymagają ponowienia.
 
 **Ostatnie nagrania** - popup scala lokalne statusy kolejki z listą nagrań pobraną z Meet2Note.
 
@@ -33,7 +33,8 @@ Jeśli wolisz wariant z botem albo aplikacją desktopową do nagrywania, zobacz 
 
 3. Service worker w tle tworzy i koordynuje dokument offscreen oraz pobiera właściwy `streamId` przechwytywania dla aktywnej karty.
 
-4. Strona offscreen przechwytuje kartę, nagrywa osobny asset mikrofonu, finalizuje bloby i dodaje nagranie do sekwencyjnej kolejki uploadu.
+4. Strona offscreen przechwytuje kartę, nagrywa osobny asset mikrofonu i zapisuje chunki nagrania do trwałego lokalnego spoolu IndexedDB.
+5. Po zatrzymaniu nagrania worker składa assety ze spoolu i wykonuje sekwencyjny upload do backendu.
 
 ## Wymagania
 
@@ -161,9 +162,10 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 │  ├─ background.ts     # service worker MV3: tworzy offscreen i koordynuje strumienie
 │  ├─ connectCallback.ts # callback flow połączenia Meet2Note
 │  ├─ extensionAuth.ts  # token użytkownika, state flow połączenia i storage
-│  ├─ offscreen.ts      # uruchamia nagrywarkę i wysyła assety do backendu
+│  ├─ offscreen.ts      # uruchamia nagrywarkę, zapisuje spool i wysyła assety do backendu
 │  ├─ popup.tsx         # UI popupu w React + Ant Design: mikrofon, start/stop
 │  ├─ micPreferences.ts # wspólne helpery zapisu wyboru mikrofonu
+│  ├─ recordingSpool.ts # trwały lokalny spool nagrań w IndexedDB
 │  ├─ recordingsClient.ts # klient listy nagrań Meet2Note
 │  ├─ uploadClient.ts   # klient kontraktu uploadu backendu
 │  └─ micsetup.tsx      # strona React + Ant Design do nadania uprawnienia i wyboru mikrofonu
@@ -290,7 +292,8 @@ Pytanie: `Stop & Upload` kończy nagrywanie, ale upload się ponawia. Co zrobić
 Odpowiedź:
 1. Sprawdź, czy `https://meet2note.com` działa i czy przeglądarka ma połączenie z siecią.
 2. Rozszerzenie ponawia pełną próbę uploadu tej pozycji co 15 sekund, a kolejne nagrania mogą w tym czasie trafiać do kolejki.
-3. Nie zamykaj przeglądarki ani nie przeładowuj rozszerzenia, bo gotowe bloby są trzymane w pamięci i mogą zostać oznaczone jako utracone.
+3. Zakończone nagranie zostaje w lokalnym spoolu IndexedDB do czasu potwierdzonego uploadu; po restarcie rozszerzenia upload powinien zostać wznowiony.
+4. Jeśli popup pokaże błąd lokalnego zapisu, sprawdź miejsce w profilu Chrome/dysku przed kolejnym nagraniem.
 
 Pytanie: Popup pokazuje `Connect to Meet2Note` albo `Reconnect to Meet2Note`. Co zrobić?
 Odpowiedź:

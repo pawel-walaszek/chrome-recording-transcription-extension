@@ -28,7 +28,7 @@ Użytkownik powinien widzieć oddzielnie:
 2. Poza zakresem:
    a) Backendowe zmiany API uploadu.
    b) Równoległy upload wielu nagrań.
-   c) Trwałe składowanie dużych blobów w IndexedDB albo na dysku.
+   c) Trwałe składowanie dużych blobów w IndexedDB albo na dysku było poza pierwotnym zakresem #10; zostało wydzielone do #13.
    d) Ręczny eksport lokalnego pliku `.webm`.
    e) Ręczne kasowanie pojedynczych pozycji historii z UI, o ile nie okaże się konieczne dla ergonomii.
    f) Migracja starszych, już utraconych uploadów zapisanych tylko jako globalny `uploadStatus`.
@@ -55,21 +55,21 @@ Użytkownik powinien widzieć oddzielnie:
    b) Kolejne zakończone nagrania czekają jako `queued`.
    c) Uzasadnienie: kontrakt backendu i zużycie pasma/pamięci są bezpieczniejsze przy jednym aktywnym uploadzie.
 
-3. Bloby pozostają w pamięci offscreen.
-   a) Gotowe `videoBlob` i opcjonalny `microphoneBlob` są trzymane w pamięci kolejki offscreen.
+3. Po realizacji #13 bloby nie pozostają wyłącznie w pamięci offscreen.
+   a) Chunks nagrania są zapisywane w IndexedDB podczas nagrywania.
    b) `chrome.storage.local` przechowuje tylko metadane historii, nie zawartość nagrań.
-   c) Uzasadnienie: trwałe składowanie dużych blobów wymaga osobnej decyzji o IndexedDB, limitach, czyszczeniu i prywatności.
+   c) Lokalny spool jest czyszczony dopiero po potwierdzonym uploadzie.
 
 4. Restart service workera ma być obsłużony przez metadane i ponowne spięcie z offscreen.
    a) Po restarcie service worker odczytuje historię z `chrome.storage.local`.
    b) Jeśli offscreen nadal żyje, background pobiera aktualny snapshot kolejki przez komunikat do offscreen.
-   c) Jeśli offscreen został utracony razem z blobami, pozycje nieukończone są oznaczane jako `failed` z komunikatem o utracie danych nagrania.
+   c) Jeśli offscreen został utracony, zakończone pozycje uploadu są odtwarzane z IndexedDB; aktywne, niefinalizowane nagrania mogą zostać oznaczone jako `failed_unrecoverable`.
 
 5. `401` i `403` nie uruchamiają zwykłego retry.
    a) Pozycja przechodzi w `auth_required`.
    b) Token Meet2Note jest czyszczony przez istniejący mechanizm reconnect.
-   c) Po ponownym połączeniu pozycja może wrócić do `queued`, jeśli jej bloby nadal istnieją w pamięci offscreen.
-   d) Jeśli bloby zostały utracone, pozycja pozostaje `failed`.
+   c) Po ponownym połączeniu pozycja może wrócić do `queued`, jeśli jej chunks nadal istnieją w lokalnym spoolu.
+   d) Jeśli chunks zostały utracone albo storage jest uszkodzony, pozycja pozostaje `failed_unrecoverable`.
 
 6. Historia ma ograniczony rozmiar.
    a) Domyślny limit: 10 ostatnich pozycji.
@@ -304,11 +304,11 @@ make check
 
 ## Ryzyka
 
-1. Pamięć offscreen może rosnąć przy wielu dużych nagraniach czekających na upload.
-   a) Mitigacja: sekwencyjny upload, limit historii i brak równoległości; w przyszłości rozważyć IndexedDB albo upload chunkowany.
+1. Lokalny spool IndexedDB może rosnąć przy wielu dużych nagraniach czekających na upload.
+   a) Mitigacja: sekwencyjny upload, limit pozycji i łącznego rozmiaru spoolu.
 
 2. Chrome może zamknąć offscreen albo przeglądarkę przed zakończeniem uploadu.
-   a) Mitigacja: metadane historii zostają, ale po utracie blobów pozycja przechodzi w `failed`.
+   a) Mitigacja: zakończone nagrania zostają w IndexedDB i upload jest odtwarzany po restarcie.
 
 3. Długi upload może konkurować o zasoby z kolejnym nagrywaniem.
    a) Mitigacja: jeden aktywny upload naraz i obserwacja realnego zachowania w smoke teście.
@@ -325,4 +325,4 @@ make check
 
 ## Otwarte Pytania
 
-Brak pytań blokujących na etapie specyfikacji. Trwałe składowanie blobów w IndexedDB jest świadomie poza zakresem tej iteracji i powinno dostać osobne issue, jeśli okaże się wymagane.
+Brak pytań blokujących na etapie specyfikacji #10. Trwałe składowanie blobów w IndexedDB zostało później wydzielone do #13 i zaimplementowane jako lokalny spool.

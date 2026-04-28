@@ -12,6 +12,19 @@ import {
   type RecordingHistoryItem,
   type RecordingUploadStatus
 } from './recordingHistory'
+import {
+  appendSpoolChunk,
+  createSpoolRecording,
+  deleteSpoolChunks,
+  getSpoolChunkCounts,
+  getSpoolUsage,
+  listInterruptedSpoolRecordings,
+  listUploadableSpoolRecordings,
+  readSpoolAssetBlob,
+  SPOOL_SCHEMA_VERSION,
+  updateSpoolRecording,
+  type RecordingSpoolRecord
+} from './recordingSpool'
 
 initDiagnostics('offscreen')
 
@@ -25,6 +38,8 @@ const UPLOAD_RETRY_INTERVAL_MS = 15_000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
 const MAX_UPLOAD_QUEUE_ENTRIES = 3
 const MAX_UPLOAD_QUEUE_BYTES = 2 * 1024 * 1024 * 1024
+const MEDIA_RECORDER_TIMESLICE_MS = 5_000
+const INTERRUPTED_RECORDING_MESSAGE = 'Recording was interrupted before it could be finalized.'
 
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
@@ -114,13 +129,13 @@ function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
 }
 
 async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
-  const response = await chrome.runtime.sendMessage({
-    type: 'UPSERT_RECORDING_HISTORY_ITEM',
-    item: toHistoryItem(entry)
+  await updateSpoolRecording({
+    ...toHistoryItem(entry),
+    schemaVersion: SPOOL_SCHEMA_VERSION,
+    videoMimeType: entry.videoBlob.type || 'video/webm',
+    microphoneMimeType: entry.microphoneBlob?.type || null
   })
-  if (response?.ok === false) {
-    throw new Error(response.error || 'Recording history update failed')
-  }
+  await persistHistoryItem(toHistoryItem(entry))
 }
 
 let activeStreams = new Set<MediaStream>()
@@ -372,11 +387,16 @@ async function captureWithStreamId(streamId: string): Promise<MediaStream> {
 
 let mediaRecorder: MediaRecorder | null = null
 let microphoneRecorder: MediaRecorder | null = null
-let chunks: BlobPart[] = []
-let microphoneChunks: BlobPart[] = []
 let capturing = false
 let currentRecordingStartedAtMs: number | null = null
 let currentRecordingContext: RecordingContext | null = null
+let currentSpoolRecord: RecordingSpoolRecord | null = null
+let currentVideoChunkSequence = 0
+let currentMicrophoneChunkSequence = 0
+let currentVideoBytes = 0
+let currentMicrophoneBytes = 0
+let currentSpoolWriteQueue: Promise<unknown> = Promise.resolve()
+let currentSpoolError: Error | null = null
 let microphoneStoppedPromise: Promise<Blob | null> | null = null
 let resolveMicrophoneStopped: ((blob: Blob | null) => void) | null = null
 let stopRequested = false
@@ -441,7 +461,13 @@ function sanitizeTabUrlForHistory(url?: string | null): string | undefined {
   }
 }
 
-function buildUploadQueueEntry(videoBlob: Blob, microphoneBlob: Blob | null): UploadQueueEntry {
+function buildSpoolRecording(
+  localId: string,
+  status: RecordingUploadStatus,
+  videoMimeType: string,
+  microphoneMimeType: string | null,
+  microphoneEnabled: boolean
+): RecordingSpoolRecord {
   const now = Date.now()
   const startedAtMs = currentRecordingStartedAtMs || now
   const tabTitle = currentRecordingContext?.tabTitle?.trim()
@@ -452,8 +478,8 @@ function buildUploadQueueEntry(videoBlob: Blob, microphoneBlob: Blob | null): Up
   const timestamp = new Date(now).toISOString()
 
   return {
-    localId: generateRecordingLocalId(),
-    status: 'queued',
+    localId,
+    status,
     title,
     meetingId,
     meetingTitle: tabTitle || undefined,
@@ -461,18 +487,40 @@ function buildUploadQueueEntry(videoBlob: Blob, microphoneBlob: Blob | null): Up
     startedAt: new Date(startedAtMs).toISOString(),
     stoppedAt: timestamp,
     durationMs: Math.max(1, now - startedAtMs),
-    videoBytes: videoBlob.size,
-    microphoneBytes: microphoneBlob?.size || 0,
+    videoBytes: currentVideoBytes,
+    microphoneBytes: currentMicrophoneBytes,
     attempt: 0,
     nextRetryAt: null,
     backendRecordingId: null,
-    assets: microphoneBlob && microphoneBlob.size > 0 ? ['video_audio', 'microphone'] : ['video_audio'],
+    assets: microphoneEnabled ? ['video_audio', 'microphone'] : ['video_audio'],
     error: null,
     createdAt: timestamp,
     updatedAt: timestamp,
+    schemaVersion: SPOOL_SCHEMA_VERSION,
+    videoMimeType,
+    microphoneMimeType
+  }
+}
+
+function spoolRecordToQueueEntry(
+  record: RecordingSpoolRecord,
+  videoBlob: Blob,
+  microphoneBlob: Blob | null
+): UploadQueueEntry {
+  return {
+    ...record,
     videoBlob,
     microphoneBlob: microphoneBlob && microphoneBlob.size > 0 ? microphoneBlob : null
   }
+}
+
+async function buildUploadQueueEntryFromSpool(record: RecordingSpoolRecord): Promise<UploadQueueEntry | null> {
+  const videoBlob = await readSpoolAssetBlob(record.localId, 'video_audio', record.videoMimeType)
+  if (!videoBlob || videoBlob.size === 0) return null
+  const microphoneBlob = record.assets.includes('microphone')
+    ? await readSpoolAssetBlob(record.localId, 'microphone', record.microphoneMimeType || 'audio/webm')
+    : null
+  return spoolRecordToQueueEntry(record, videoBlob, microphoneBlob)
 }
 
 function uploadInputFromQueueEntry(entry: UploadQueueEntry): UploadRecordingInput {
@@ -485,6 +533,61 @@ function uploadInputFromQueueEntry(entry: UploadQueueEntry): UploadRecordingInpu
     videoBlob: entry.videoBlob,
     microphoneBlob: entry.microphoneBlob
   }
+}
+
+function enqueueCurrentSpoolWrite(operation: () => Promise<void>): void {
+  currentSpoolWriteQueue = currentSpoolWriteQueue
+    .then(operation)
+    .catch((error) => {
+      const err = error instanceof Error ? error : new Error(String(error))
+      currentSpoolError = err
+      log('Recording spool write failed', err)
+      captureException(err, { operation: 'recordingSpool.write' })
+      if (currentSpoolRecord) {
+        currentSpoolRecord = {
+          ...currentSpoolRecord,
+          status: 'local_error',
+          error: err.message,
+          updatedAt: new Date().toISOString()
+        }
+        void updateSpoolRecording(currentSpoolRecord).catch(() => {})
+        void persistHistoryItem(currentSpoolRecord).catch(() => {})
+      }
+      try { stopActiveRecorders() } catch {}
+    })
+}
+
+function saveRecorderChunk(asset: 'video_audio' | 'microphone', blob: Blob, mimeType: string): void {
+  const record = currentSpoolRecord
+  if (!record || !blob.size) return
+  const sequence = asset === 'video_audio'
+    ? currentVideoChunkSequence++
+    : currentMicrophoneChunkSequence++
+
+  enqueueCurrentSpoolWrite(async () => {
+    const sizeBytes = await appendSpoolChunk({
+      localId: record.localId,
+      asset,
+      sequence,
+      blob,
+      mimeType
+    })
+    if (asset === 'video_audio') currentVideoBytes += sizeBytes
+    else currentMicrophoneBytes += sizeBytes
+  })
+}
+
+async function persistHistoryItem(item: RecordingHistoryItem): Promise<RecordingHistoryItem[]> {
+  const response = await chrome.runtime.sendMessage({
+    type: 'UPSERT_RECORDING_HISTORY_ITEM',
+    item
+  })
+  if (response?.ok === false) {
+    throw new Error(response.error || 'Recording history update failed')
+  }
+  return Array.isArray(response?.items)
+    ? response.items as RecordingHistoryItem[]
+    : [item]
 }
 
 async function updateQueueEntry(
@@ -589,6 +692,7 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
         nextRetryAt: null,
         error: null
       })
+      await deleteSpoolChunks(entry.localId)
       removeQueueEntry(entry.localId)
       log('Upload completed', { localId: entry.localId, recordingId: result.recordingId, assets: result.assets, attempt })
       return 'done'
@@ -700,6 +804,92 @@ async function enqueueUpload(entry: UploadQueueEntry): Promise<void> {
   })
 }
 
+async function assertSpoolCapacityBeforeRecording(): Promise<void> {
+  const usage = await getSpoolUsage().catch(() => ({ recordings: 0, bytes: 0 }))
+  if (usage.recordings >= MAX_UPLOAD_QUEUE_ENTRIES || usage.bytes >= MAX_UPLOAD_QUEUE_BYTES) {
+    throw new Error('Local recording storage is full. Wait for pending uploads to finish before starting another recording.')
+  }
+
+  try {
+    const estimate = await navigator.storage?.estimate?.()
+    if (estimate?.quota && estimate.usage && estimate.usage / estimate.quota > 0.9) {
+      throw new Error('Browser storage is almost full. Free space before starting another recording.')
+    }
+  } catch (e) {
+    if (e instanceof Error) throw e
+  }
+}
+
+async function markInterruptedSpoolRecordings(): Promise<void> {
+  const interrupted = await listInterruptedSpoolRecordings()
+  for (const record of interrupted) {
+    const counts = await getSpoolChunkCounts(record.localId).catch(() => ({ video_audio: 0, microphone: 0 }))
+    const message = counts.video_audio > 0
+      ? 'Recording was interrupted before finalization; saved chunks cannot be safely uploaded as a complete recording.'
+      : INTERRUPTED_RECORDING_MESSAGE
+    const nextRecord: RecordingSpoolRecord = {
+      ...record,
+      status: 'failed_unrecoverable',
+      error: message,
+      nextRetryAt: null,
+      updatedAt: new Date().toISOString()
+    }
+    await updateSpoolRecording(nextRecord)
+    await persistHistoryItem(nextRecord)
+  }
+}
+
+async function restoreUploadQueueFromSpool(): Promise<void> {
+  await markInterruptedSpoolRecordings()
+  const records = await listUploadableSpoolRecordings()
+  let restored = 0
+  const canResumeAuthRequired = await requestMeet2NoteExtensionToken()
+    .then(() => true)
+    .catch(() => false)
+
+  for (const record of records) {
+    if (uploadQueue.some(entry => entry.localId === record.localId)) continue
+    const restoredStatus = record.status === 'uploading' ||
+      (record.status === 'auth_required' && canResumeAuthRequired)
+      ? 'queued'
+      : record.status
+    const entry = await buildUploadQueueEntryFromSpool({
+      ...record,
+      status: restoredStatus,
+      error: record.status === 'uploading'
+        ? 'Upload was interrupted and will be retried.'
+        : record.status === 'auth_required' && canResumeAuthRequired
+          ? null
+        : record.error,
+      updatedAt: new Date().toISOString()
+    })
+    if (!entry) {
+      const failedRecord: RecordingSpoolRecord = {
+        ...record,
+        status: 'failed_unrecoverable',
+        error: 'Recording data is missing from the local spool.',
+        nextRetryAt: null,
+        updatedAt: new Date().toISOString()
+      }
+      await updateSpoolRecording(failedRecord)
+      await persistHistoryItem(failedRecord)
+      continue
+    }
+    uploadQueue.push(entry)
+    await persistQueueEntry(entry)
+    restored += 1
+  }
+
+  if (restored) {
+    log('Restored upload queue entries from spool', restored)
+    wakeUploadQueueWorker()
+    void runUploadQueueWorker().catch((e) => {
+      log('Unexpected restored upload queue worker failure', e)
+      captureException(e, { operation: 'restoreUploadQueueFromSpool.runUploadQueueWorker' })
+    })
+  }
+}
+
 async function requeueAuthRequiredUploads(): Promise<void> {
   let changed = false
   for (const entry of uploadQueue) {
@@ -757,18 +947,42 @@ function markStopComplete(): void {
   stopRequested = false
 }
 
+function resetCurrentSpoolRuntime(): void {
+  currentSpoolRecord = null
+  currentVideoBytes = 0
+  currentMicrophoneBytes = 0
+  currentVideoChunkSequence = 0
+  currentMicrophoneChunkSequence = 0
+  currentSpoolWriteQueue = Promise.resolve()
+  currentSpoolError = null
+}
+
+function markCurrentSpoolFailedUnrecoverable(message: string): void {
+  if (!currentSpoolRecord) return
+  const nextRecord: RecordingSpoolRecord = {
+    ...currentSpoolRecord,
+    status: 'failed_unrecoverable',
+    error: message,
+    nextRetryAt: null,
+    updatedAt: new Date().toISOString()
+  }
+  currentSpoolRecord = nextRecord
+  void updateSpoolRecording(nextRecord).catch(() => {})
+  void persistHistoryItem(nextRecord).catch(() => {})
+}
+
 function forceClearStuckRecording(recordingId: number, reason: string, error?: unknown): void {
   abandonedRecordingIds.add(recordingId)
+  markCurrentSpoolFailedUnrecoverable(INTERRUPTED_RECORDING_MESSAGE)
   markStopComplete()
   resolveMicrophoneStop(null)
   cleanupRecordingResources()
   mediaRecorder = null
   microphoneRecorder = null
-  chunks = []
-  microphoneChunks = []
   capturing = false
   currentRecordingStartedAtMs = null
   currentRecordingContext = null
+  resetCurrentSpoolRuntime()
   microphoneStoppedPromise = Promise.resolve(null)
   resolveMicrophoneStopped = null
   pushState(false, { warning: reason })
@@ -864,10 +1078,19 @@ async function prepareAndRecord(
     } catch {}
   }
 
-  chunks = []
-  microphoneChunks = []
   const mime = chooseVideoMime()
   const microphoneMime = chooseMicrophoneMime()
+  const localId = generateRecordingLocalId()
+  currentVideoChunkSequence = 0
+  currentMicrophoneChunkSequence = 0
+  currentVideoBytes = 0
+  currentMicrophoneBytes = 0
+  currentSpoolWriteQueue = Promise.resolve()
+  currentSpoolError = null
+  currentSpoolRecord = buildSpoolRecording(localId, 'recording', mime, micTrack ? microphoneMime : null, !!micTrack)
+  await assertSpoolCapacityBeforeRecording()
+  await createSpoolRecording(currentSpoolRecord)
+  await persistHistoryItem(currentSpoolRecord)
 
   microphoneStoppedPromise = Promise.resolve(null)
   resolveMicrophoneStopped = null
@@ -884,7 +1107,7 @@ async function prepareAndRecord(
       })
 
       microphoneRecorder.ondataavailable = (e: BlobEvent) => {
-        if (e.data && e.data.size) microphoneChunks.push(e.data)
+        if (e.data && e.data.size) saveRecorderChunk('microphone', e.data, microphoneMime)
       }
 
       microphoneRecorder.onerror = (e: any) => {
@@ -894,9 +1117,7 @@ async function prepareAndRecord(
       }
 
       microphoneRecorder.onstop = () => {
-        const microphoneBlob = new Blob(microphoneChunks, { type: microphoneMime })
-        log('Microphone finalized; chunks =', microphoneChunks.length, 'blob.size =', microphoneBlob.size)
-        resolveMicrophoneStop(microphoneBlob.size > 0 ? microphoneBlob : null)
+        resolveMicrophoneStop(null)
       }
     } catch (e) {
       log('microphone recorder setup failed; continuing with video_audio only', e)
@@ -938,7 +1159,7 @@ async function prepareAndRecord(
     }
 
     mediaRecorder!.ondataavailable = (e: BlobEvent) => {
-      if (e.data && e.data.size) chunks.push(e.data)
+      if (e.data && e.data.size) saveRecorderChunk('video_audio', e.data, mime)
     }
 
     mediaRecorder!.onstop = async () => {
@@ -947,11 +1168,37 @@ async function prepareAndRecord(
           log('Skipping upload for abandoned recording', recordingId)
           return
         }
-        const videoBlob = new Blob(chunks, { type: mime })
-        const microphoneBlob = microphoneStoppedPromise ? await microphoneStoppedPromise : null
-        log('Finalizing; video chunks =', chunks.length, 'video blob.size =', videoBlob.size, 'microphone blob.size =', microphoneBlob?.size || 0)
+        if (currentSpoolRecord) {
+          currentSpoolRecord = {
+            ...currentSpoolRecord,
+            status: 'finalizing',
+            updatedAt: new Date().toISOString()
+          }
+          await updateSpoolRecording(currentSpoolRecord)
+          await persistHistoryItem(currentSpoolRecord)
+        }
+        if (microphoneStoppedPromise) await microphoneStoppedPromise.catch(() => null)
+        await currentSpoolWriteQueue
+        if (currentSpoolError) throw currentSpoolError
+        if (!currentSpoolRecord) throw new Error('Missing local recording spool record.')
 
-        const uploadEntry = buildUploadQueueEntry(videoBlob, microphoneBlob)
+        const stoppedAt = new Date().toISOString()
+        currentSpoolRecord = {
+          ...currentSpoolRecord,
+          status: 'queued',
+          stoppedAt,
+          durationMs: Math.max(1, Date.now() - (currentRecordingStartedAtMs || Date.now())),
+          videoBytes: currentVideoBytes,
+          microphoneBytes: currentMicrophoneBytes,
+          assets: currentMicrophoneBytes > 0 ? ['video_audio', 'microphone'] : ['video_audio'],
+          updatedAt: stoppedAt
+        }
+        await updateSpoolRecording(currentSpoolRecord)
+        await persistHistoryItem(currentSpoolRecord)
+
+        const uploadEntry = await buildUploadQueueEntryFromSpool(currentSpoolRecord)
+        if (!uploadEntry) throw new Error('Recording was finalized without video data in local spool.')
+        log('Finalizing; video blob.size =', uploadEntry.videoBlob.size, 'microphone blob.size =', uploadEntry.microphoneBlob?.size || 0)
         void enqueueUpload(uploadEntry).catch((e) => {
           log('Unexpected upload queue enqueue failure', e)
           captureException(e, { operation: 'enqueueUpload.unhandled' })
@@ -963,11 +1210,10 @@ async function prepareAndRecord(
         cleanupRecordingResources()
         mediaRecorder = null
         microphoneRecorder = null
-        chunks = []
-        microphoneChunks = []
         capturing = false
         currentRecordingStartedAtMs = null
         currentRecordingContext = null
+        resetCurrentSpoolRuntime()
         resolveMicrophoneStopped = null
         microphoneStoppedPromise = null
         abandonedRecordingIds.delete(recordingId)
@@ -1022,9 +1268,8 @@ async function startRecordingFromStreamId(
     captureException(e, { operation: 'startRecordingFromStreamId' })
     mediaRecorder = null
     microphoneRecorder = null
-    chunks = []
-    microphoneChunks = []
     capturing = false
+    resetCurrentSpoolRuntime()
     pushState(false)
     throw e
   }
@@ -1111,6 +1356,11 @@ rpcPort.onMessage.addListener(async (msg: any) => {
       return respond(msg, { ok: true })
     }
 
+    if (msg?.type === 'OFFSCREEN_RESTORE_UPLOAD_QUEUE') {
+      await restoreUploadQueueFromSpool()
+      return respond(msg, { ok: true })
+    }
+
     if (msg?.type === 'DIAG_ECHO') {
       return respond(msg, { ok: true, pong: 'offscreen-alive' })
     }
@@ -1129,4 +1379,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === 'OFFSCREEN_CONNECT') { connectPort(); sendResponse({ ok: true }); return true }
   } catch (e) { sendResponse({ ok: false, error: String(e) }) }
   return false
+})
+
+void restoreUploadQueueFromSpool().catch((e) => {
+  log('restore upload queue from spool failed', e)
+  captureException(e, { operation: 'restoreUploadQueueFromSpool.initial' })
 })

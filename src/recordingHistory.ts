@@ -1,6 +1,8 @@
 import type { UploadAsset } from './uploadClient'
 
 export type RecordingUploadStatus =
+  | 'recording'
+  | 'finalizing'
   | 'queued'
   | 'uploading'
   | 'retrying'
@@ -9,6 +11,8 @@ export type RecordingUploadStatus =
   | 'processing'
   | 'ready'
   | 'auth_required'
+  | 'local_error'
+  | 'failed_unrecoverable'
   | 'failed'
 
 export type RecordingUploadAsset = UploadAsset
@@ -43,6 +47,8 @@ type StoredRecordingHistory = Partial<Record<typeof RECORDING_HISTORY_KEY, unkno
 let recordingHistoryWriteQueue: Promise<unknown> = Promise.resolve()
 
 const NON_TERMINAL_STATUSES = new Set<RecordingUploadStatus>([
+  'recording',
+  'finalizing',
   'queued',
   'uploading',
   'retrying',
@@ -54,6 +60,8 @@ export function isTerminalRecordingStatus(status: RecordingUploadStatus): boolea
     status === 'pending' ||
     status === 'processing' ||
     status === 'ready' ||
+    status === 'local_error' ||
+    status === 'failed_unrecoverable' ||
     status === 'failed'
 }
 
@@ -88,11 +96,15 @@ function isRecordingUploadStatus(value: unknown): value is RecordingUploadStatus
   return value === 'queued' ||
     value === 'uploading' ||
     value === 'retrying' ||
+    value === 'recording' ||
+    value === 'finalizing' ||
     value === 'uploaded' ||
     value === 'pending' ||
     value === 'processing' ||
     value === 'ready' ||
     value === 'auth_required' ||
+    value === 'local_error' ||
+    value === 'failed_unrecoverable' ||
     value === 'failed'
 }
 
