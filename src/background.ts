@@ -32,9 +32,11 @@ let autoStopMeetTabId: number | null = null
 let recordingStartedAt: number | null = null
 const meetTabsInMeeting = new Set<number>()
 let recentRecordings: RecordingHistoryItem[] = []
+let backendRecordings: RecordingHistoryItem[] = []
 let backendRecordingsRefreshPromise: Promise<void> | null = null
 let backendRecordingsLastRefreshedAt = 0
 const BACKEND_RECORDINGS_REFRESH_THROTTLE_MS = 15_000
+const POPUP_BACKEND_REFRESH_WAIT_MS = 1_500
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 const DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS = 15_000
@@ -137,7 +139,8 @@ function setRecordingStopping(stopping: boolean): void {
 
 async function hydrateRecentRecordings(): Promise<RecordingHistoryItem[]> {
   try {
-    recentRecordings = (await readRecordingHistory()).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+    recentRecordings = mergeRecordingHistory(await readRecordingHistory(), backendRecordings)
+      .slice(0, POPUP_RECORDING_HISTORY_LIMIT)
     return recentRecordings
   } catch {}
   return recentRecordings
@@ -145,8 +148,8 @@ async function hydrateRecentRecordings(): Promise<RecordingHistoryItem[]> {
 
 async function refreshRecentRecordingsFromBackend(): Promise<RecordingHistoryItem[]> {
   const localHistory = await readRecordingHistory()
-  const backendHistory = await readBackendRecordingHistory()
-  recentRecordings = mergeRecordingHistory(localHistory, backendHistory).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+  backendRecordings = await readBackendRecordingHistory()
+  recentRecordings = mergeRecordingHistory(localHistory, backendRecordings).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
   return recentRecordings
 }
 
@@ -257,10 +260,10 @@ function isLocalOnlyPopupHistoryItem(item: RecordingHistoryItem): boolean {
     isLocalOnlyFailureWithoutRecording(item)
 }
 
-function scheduleBackendRecordingsRefresh(): void {
+function scheduleBackendRecordingsRefresh(force = false): Promise<void> | null {
   const now = Date.now()
-  if (backendRecordingsRefreshPromise) return
-  if (now - backendRecordingsLastRefreshedAt < BACKEND_RECORDINGS_REFRESH_THROTTLE_MS) return
+  if (backendRecordingsRefreshPromise) return backendRecordingsRefreshPromise
+  if (!force && now - backendRecordingsLastRefreshedAt < BACKEND_RECORDINGS_REFRESH_THROTTLE_MS) return null
 
   backendRecordingsRefreshPromise = refreshRecentRecordingsFromBackend()
     .then(() => {
@@ -273,6 +276,18 @@ function scheduleBackendRecordingsRefresh(): void {
     .finally(() => {
       backendRecordingsRefreshPromise = null
     })
+
+  return backendRecordingsRefreshPromise
+}
+
+async function refreshRecentRecordingsForPopup(): Promise<void> {
+  await hydrateRecentRecordings()
+  const refreshPromise = scheduleBackendRecordingsRefresh(true)
+  if (!refreshPromise) return
+  await Promise.race([
+    refreshPromise,
+    wait(POPUP_BACKEND_REFRESH_WAIT_MS)
+  ])
 }
 
 function broadcastUploadQueueState(items = recentRecordings): void {
@@ -440,8 +455,12 @@ chrome.runtime.onConnect.addListener((port) => {
     }
 
     if (msg?.type === 'UPLOAD_QUEUE_STATE' && Array.isArray(msg.items)) {
-      recentRecordings = normalizeRecordingHistory(msg.items).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+      recentRecordings = mergeRecordingHistory(
+        normalizeRecordingHistory(msg.items),
+        backendRecordings
+      ).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
       broadcastUploadQueueState()
+      scheduleBackendRecordingsRefresh()
     }
   })
 
@@ -720,9 +739,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (!lastKnownRecording && !recordingStarting && !recordingStopping) {
           clearRecordingBadges(currentRecordingTabId)
         }
-        await hydrateRecentRecordings()
+        await refreshRecentRecordingsForPopup()
       } catch {}
-      scheduleBackendRecordingsRefresh()
       wakeOffscreenForPendingUploads()
       sendResponse({
         recording: lastKnownRecording,
