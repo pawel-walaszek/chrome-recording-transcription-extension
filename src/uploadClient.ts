@@ -1,4 +1,3 @@
-import { captureException } from './diagnostics'
 import {
   makeAuthorizationHeader,
   Meet2NoteAuthError
@@ -168,31 +167,21 @@ export async function uploadRecordingOnce(
   input: UploadRecordingInput,
   extensionToken: string
 ): Promise<UploadRecordingResult> {
-  try {
-    const authHeaders = await uploadAuthHeaders(extensionToken)
-    const session = await initUpload(input, authHeaders)
-    const assets: UploadAsset[] = ['video_audio']
+  const authHeaders = await uploadAuthHeaders(extensionToken)
+  const session = await initUpload(input, authHeaders)
+  const assets: UploadAsset[] = ['video_audio']
 
-    await uploadAsset(session.recordingId, session.uploadToken, 'video', input.videoBlob, authHeaders)
+  await uploadAsset(session.recordingId, session.uploadToken, 'video', input.videoBlob, authHeaders)
 
-    if (input.microphoneBlob && input.microphoneBlob.size > 0) {
-      await uploadAsset(session.recordingId, session.uploadToken, 'microphone', input.microphoneBlob, authHeaders)
-      assets.push('microphone')
-    }
+  if (input.microphoneBlob && input.microphoneBlob.size > 0) {
+    await uploadAsset(session.recordingId, session.uploadToken, 'microphone', input.microphoneBlob, authHeaders)
+    assets.push('microphone')
+  }
 
-    await completeUpload(session.recordingId, session.uploadToken, assets, authHeaders)
+  await completeUpload(session.recordingId, session.uploadToken, assets, authHeaders)
 
-    return {
-      recordingId: session.recordingId,
-      assets
-    }
-  } catch (error) {
-    captureException(error, {
-      operation: 'uploadRecordingOnce',
-      hasMicrophoneAsset: !!input.microphoneBlob,
-      videoBytes: input.videoBlob.size,
-      microphoneBytes: input.microphoneBlob?.size || 0
-    })
-    throw error
+  return {
+    recordingId: session.recordingId,
+    assets
   }
 }
