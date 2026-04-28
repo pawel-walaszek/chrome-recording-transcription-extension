@@ -1,7 +1,7 @@
 // src/background.ts
 
 import { captureException, initDiagnostics } from './diagnostics'
-import { getMeet2NoteExtensionToken, MEET2NOTE_EXTENSION_TOKEN_KEY } from './extensionAuth'
+import { getMeet2NoteExtensionToken } from './extensionAuth'
 import { clearMicPreferences, getMicPreferences, type MicPreferences } from './micPreferences'
 import {
   markIncompleteRecordingsFailed,
@@ -564,17 +564,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   })
 
   return true
-})
-
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'local') return
-
-  const tokenChange = changes[MEET2NOTE_EXTENSION_TOKEN_KEY]
-  if (tokenChange && typeof tokenChange.newValue === 'string' && tokenChange.newValue.trim() && offscreenPort) {
-    postToOffscreen({ type: 'OFFSCREEN_RESUME_AUTH_UPLOADS' }).catch((e) => {
-      bglog('OFFSCREEN_RESUME_AUTH_UPLOADS failed', e)
-    })
-  }
 })
 
 chrome.runtime.onSuspend?.addListener(async () => {

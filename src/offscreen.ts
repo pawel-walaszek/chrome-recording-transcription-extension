@@ -1109,11 +1109,6 @@ rpcPort.onMessage.addListener(async (msg: any) => {
       })
     }
 
-    if (msg?.type === 'OFFSCREEN_RESUME_AUTH_UPLOADS') {
-      await requeueAuthRequiredUploads()
-      return respond(msg, { ok: true })
-    }
-
     if (msg?.type === 'DIAG_ECHO') {
       return respond(msg, { ok: true, pong: 'offscreen-alive' })
     }
