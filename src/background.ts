@@ -256,6 +256,17 @@ chrome.runtime.onConnect.addListener((port) => {
     recordingStartedAt = null
     persistRecordingState(false, null)
     setBadge(false)
+
+    void (async () => {
+      try {
+        if (await hasOffscreenContext()) return
+        recentRecordings = (await markIncompleteRecordingsFailed('Upload data was lost when the recorder context disconnected.')).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+        broadcastUploadQueueState()
+      } catch (e) {
+        bglog('Failed to mark incomplete recordings after offscreen disconnect', e)
+        captureException(e, { operation: 'offscreen.onDisconnect.markIncompleteRecordingsFailed' })
+      }
+    })()
   })
 })
 

@@ -307,10 +307,7 @@ function App(): React.ReactElement {
   const connectionErrorMessage = meet2NoteConnection.authError ||
     authRequiredUpload?.error ||
     null
-  const showRecentRecordings = recordingControlsAvailable || recentRecordings.length > 0
-  const recentRecordingsEmptyText = recordingControlsAvailable
-    ? 'No recordings from this browser yet'
-    : 'Connect to Meet2Note to upload recordings'
+  const recentRecordingsEmptyText = 'No recordings from this browser yet'
 
   const openSettings = useCallback(async () => {
     try {
@@ -580,61 +577,59 @@ function App(): React.ReactElement {
             </Space>
           </>
         ) : null}
-        {showRecentRecordings ? (
-          <>
-            <Divider style={{ margin: '4px 0' }} />
-            <Flex vertical gap={6}>
-              <Text strong style={{ fontSize: 12, lineHeight: 1.2 }}>
-                Recent recordings
-              </Text>
-              {recentRecordings.length ? (
-                recentRecordings.map(item => (
-                  <Flex
-                    key={item.localId}
-                    vertical
-                    gap={3}
-                    style={{ borderTop: '1px solid #f0f0f0', paddingTop: 5 }}
-                  >
-                    <Flex align="center" justify="space-between" gap={6}>
-                      <Text
-                        title={item.title}
-                        style={{
-                          fontSize: 12,
-                          lineHeight: 1.2,
-                          maxWidth: 132,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}
-                      >
-                        {item.title}
-                      </Text>
-                      <Tag
-                        color={getHistoryTagColor(item.status)}
-                        style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: '16px' }}
-                      >
-                        {item.status}
-                      </Tag>
-                    </Flex>
-                    <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
-                      {formatTime(item.startedAt)} · {formatDuration(item.durationMs)}
-                    </Text>
+        <>
+          <Divider style={{ margin: '4px 0' }} />
+          <Flex vertical gap={6}>
+            <Text strong style={{ fontSize: 12, lineHeight: 1.2 }}>
+              Recent recordings
+            </Text>
+            {recentRecordings.length ? (
+              recentRecordings.map(item => (
+                <Flex
+                  key={item.localId}
+                  vertical
+                  gap={3}
+                  style={{ borderTop: '1px solid #f0f0f0', paddingTop: 5 }}
+                >
+                  <Flex align="center" justify="space-between" gap={6}>
                     <Text
-                      type={item.status === 'failed' || item.status === 'auth_required' ? 'danger' : 'secondary'}
-                      style={{ fontSize: 11, lineHeight: 1.2 }}
+                      title={item.title}
+                      style={{
+                        fontSize: 12,
+                        lineHeight: 1.2,
+                        maxWidth: 132,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
                     >
-                      {getHistoryStatusText(item, now)}
+                      {item.title}
                     </Text>
+                    <Tag
+                      color={getHistoryTagColor(item.status)}
+                      style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: '16px' }}
+                    >
+                      {item.status}
+                    </Tag>
                   </Flex>
-                ))
-              ) : (
-                <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
-                  {recentRecordingsEmptyText}
-                </Text>
-              )}
-            </Flex>
-          </>
-        ) : null}
+                  <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+                    {formatTime(item.startedAt)} · {formatDuration(item.durationMs)}
+                  </Text>
+                  <Text
+                    type={item.status === 'failed' || item.status === 'auth_required' ? 'danger' : 'secondary'}
+                    style={{ fontSize: 11, lineHeight: 1.2 }}
+                  >
+                    {getHistoryStatusText(item, now)}
+                  </Text>
+                </Flex>
+              ))
+            ) : (
+              <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+                {recentRecordingsEmptyText}
+              </Text>
+            )}
+          </Flex>
+        </>
       </Flex>
     </ConfigProvider>
   )

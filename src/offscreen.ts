@@ -1001,15 +1001,6 @@ rpcPort.onMessage.addListener(async (msg: any) => {
       })
     }
 
-    if (msg?.type === 'OFFSCREEN_UPLOAD_QUEUE_STATUS') {
-      return respond(msg, {
-        ok: true,
-        uploadWorkerRunning,
-        queuedUploads: uploadQueue.length,
-        items: await readRecordingHistory().catch(() => [])
-      })
-    }
-
     if (msg?.type === 'OFFSCREEN_RESUME_AUTH_UPLOADS') {
       await requeueAuthRequiredUploads()
       return respond(msg, { ok: true })
