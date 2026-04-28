@@ -130,6 +130,8 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
       - `unclear` + pytanie doprecyzowujace
    b) Nie zostawiaj komentarzy Copilota bez odpowiedzi.
    c) Jesli uwaga jest trade-offem albo moze zmienic zalozenia funkcjonalne, zawsze pytaj czlowieka przed wdrozeniem.
+   d) Przed zakonczeniem pracy z CR sprawdz thread-aware stan review i upewnij sie, ze kazda uwaga Copilota ma odpowiedz w watku oraz jest resolved albo ma jawne wyjasnienie `not applying`/`unclear`.
+   e) Brak odpowiedzi przy uwadze Copilota jest traktowany jako blad procesu, bo czlowiek uzywa odpowiedzi jako sygnalu, czy i jak uwaga zostala uwzgledniona.
 
 4. Kolejne rundy
    a) Po wdrozeniu zatwierdzonych przez czlowieka poprawek zrob commit i push.
