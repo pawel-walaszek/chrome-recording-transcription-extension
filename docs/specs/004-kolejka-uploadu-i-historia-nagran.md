@@ -83,6 +83,8 @@ Użytkownik powinien widzieć oddzielnie:
 
 ## Model Danych
 
+Uwaga: sekcja opisuje pierwotną implementację issue #10. Aktualny docelowy kontrakt statusów dla nowych zmian jest opisany w [kontrakcie statusów nagrania](../contracts/recording-statuses.md) i w issue [#17](https://github.com/pawel-walaszek/chrome-recording-transcription-extension/issues/17).
+
 1. Status pozycji historii:
 
 ```ts
@@ -226,7 +228,7 @@ interface UploadQueueSnapshotMessage {
    b) `uploading`: `Uploading...`.
    c) `retrying`: `Retrying in Ns`.
    d) `uploaded`: `Uploaded`.
-   e) `pending`: `Waiting for processing`.
+   e) `pending`: `Waiting for processing` - legacy; dla nowych zmian używać `processing_queued` zgodnie z [kontraktem statusów nagrania](../contracts/recording-statuses.md).
    f) `processing`: `Processing in Meet2Note`.
    g) `ready`: `Ready in Meet2Note`.
    h) `auth_required`: `Reconnect to upload`.

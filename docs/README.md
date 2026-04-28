@@ -6,5 +6,6 @@ Ten katalog zawiera notatki techniczne i operacyjne dla rozszerzenia Chrome.
 2. [Runbooki](runbooks/) zawierają powtarzalne procedury walidacyjne.
 3. [Specyfikacje](specs/) zawierają krótkie specyfikacje implementacyjne dla większych zmian.
 4. [Przewodniki agentowe](agent-guides/) zawierają lokalne zasady pracy agentów nad Chrome Extension i TypeScript.
+5. [Kontrakty integracyjne](contracts/) opisują ustalenia współdzielone z backendem Meet2Note.
 
-Projekt nie używa obecnie osobnych dokumentów integracji API, dokumentów deploymentu ani projektowych umiejętności agentowych poza przewodnikami w `agent-guides/`.
+Projekt nie używa obecnie osobnych dokumentów deploymentu ani projektowych umiejętności agentowych poza przewodnikami w `agent-guides/`.
