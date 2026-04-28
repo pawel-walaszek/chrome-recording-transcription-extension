@@ -39,7 +39,14 @@ function openSpoolDb(): Promise<IDBDatabase> {
 
   dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
-    request.onerror = () => reject(request.error || new Error('Could not open recording spool.'))
+    request.onerror = () => {
+      dbPromise = null
+      reject(request.error || new Error('Could not open recording spool.'))
+    }
+    request.onblocked = () => {
+      dbPromise = null
+      reject(new Error('Recording spool upgrade is blocked by another extension context.'))
+    }
     request.onupgradeneeded = () => {
       const db = request.result
       if (!db.objectStoreNames.contains(RECORDINGS_STORE)) {

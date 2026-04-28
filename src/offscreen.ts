@@ -549,6 +549,7 @@ async function markSpoolRecordFailedUnrecoverable(
 
 async function markCurrentSpoolLocalError(message: string): Promise<void> {
   if (!currentSpoolRecord) return
+  const localId = currentSpoolRecord.localId
   currentSpoolRecord = {
     ...currentSpoolRecord,
     status: 'local_error',
@@ -558,6 +559,12 @@ async function markCurrentSpoolLocalError(message: string): Promise<void> {
   }
   await updateSpoolRecording(currentSpoolRecord)
   await persistHistoryItem(currentSpoolRecord)
+  await deleteSpoolChunks(localId).catch((e) => {
+    captureException(e, {
+      operation: 'markCurrentSpoolLocalError.deleteSpoolChunks',
+      localId
+    })
+  })
 }
 
 function uploadInputFromQueueEntry(entry: UploadQueueEntry): UploadRecordingInput {
@@ -1011,6 +1018,12 @@ function markCurrentSpoolFailedUnrecoverable(message: string): void {
   currentSpoolRecord = nextRecord
   void updateSpoolRecording(nextRecord).catch(() => {})
   void persistHistoryItem(nextRecord).catch(() => {})
+  void deleteSpoolChunks(nextRecord.localId).catch((e) => {
+    captureException(e, {
+      operation: 'markCurrentSpoolFailedUnrecoverable.deleteSpoolChunks',
+      localId: nextRecord.localId
+    })
+  })
 }
 
 function forceClearStuckRecording(recordingId: number, reason: string, error?: unknown): void {

@@ -236,10 +236,20 @@ function hasPendingLocalUpload(items = recentRecordings): boolean {
   )
 }
 
+async function hasPendingLocalUploadInHistory(): Promise<boolean> {
+  try {
+    return hasPendingLocalUpload(await readRecordingHistory())
+  } catch (e) {
+    captureException(e, { operation: 'hasPendingLocalUploadInHistory' })
+    return hasPendingLocalUpload()
+  }
+}
+
 function wakeOffscreenForPendingUploads(): void {
-  if (!hasPendingLocalUpload()) return
-  void ensureOffscreen()
-    .then(() => {
+  void hasPendingLocalUploadInHistory()
+    .then(async (hasPendingUploads) => {
+      if (!hasPendingUploads) return undefined
+      await ensureOffscreen()
       if (offscreenPort) {
         return postToOffscreen({ type: 'OFFSCREEN_RESTORE_UPLOAD_QUEUE' }).catch(() => undefined)
       }
