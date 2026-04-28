@@ -36,7 +36,6 @@ let backendRecordings: RecordingHistoryItem[] = []
 let backendRecordingsRefreshPromise: Promise<void> | null = null
 let backendRecordingsLastRefreshedAt = 0
 const BACKEND_RECORDINGS_REFRESH_THROTTLE_MS = 15_000
-const POPUP_BACKEND_REFRESH_WAIT_MS = 1_500
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 const DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS = 15_000
@@ -282,12 +281,7 @@ function scheduleBackendRecordingsRefresh(force = false): Promise<void> | null {
 
 async function refreshRecentRecordingsForPopup(): Promise<void> {
   await hydrateRecentRecordings()
-  const refreshPromise = scheduleBackendRecordingsRefresh(true)
-  if (!refreshPromise) return
-  await Promise.race([
-    refreshPromise,
-    wait(POPUP_BACKEND_REFRESH_WAIT_MS)
-  ])
+  scheduleBackendRecordingsRefresh()
 }
 
 function broadcastUploadQueueState(items = recentRecordings): void {

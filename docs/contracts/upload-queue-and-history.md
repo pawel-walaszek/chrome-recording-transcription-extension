@@ -49,6 +49,7 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 7. Lokalne wpisy bez `backendRecordingId` mogą uzupełniać popup tylko dla stanów przejściowych, których backend jeszcze nie zna: `recording`, `finalizing`, `upload_queued`, `uploading` oraz `failed` z `failureReason: "auth_required"`.
 8. Lokalne `failed` bez `backendRecordingId` i bez możliwości wznowienia uploadu nie reprezentują nagrania; mogą być widoczne w popupie maksymalnie 3 minuty jako diagnostyka, nie powinny wypierać pozycji backendowych i nie są propagowane do backendu.
 9. Snapshot lokalnej kolejki z offscreen nie może zastępować backendowej listy nagrań; background scala go z cachem backendu.
+10. Popup może używać lokalnego cache UI dla stanu połączenia i ostatniej listy nagrań, żeby pierwszy render nie pokazywał fałszywego stanu rozłączenia ani pustej listy przed asynchroniczną synchronizacją.
 
 ## Komunikacja
 

@@ -49,6 +49,12 @@ const HEADER_ACTION_ICON_STYLE: React.CSSProperties = {
   fontSize: 16,
   lineHeight: 1
 }
+const POPUP_UI_CACHE_KEY = 'meet2notePopupUiCache'
+
+interface PopupUiCache {
+  connection: Meet2NoteConnection | null
+  recentRecordings: RecordingHistoryItem[]
+}
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
@@ -150,6 +156,33 @@ function getHistoryTagColor(status: RecordingUploadStatus): string {
   return 'default'
 }
 
+function readPopupUiCache(): PopupUiCache {
+  try {
+    const raw = window.localStorage.getItem(POPUP_UI_CACHE_KEY)
+    if (!raw) return { connection: null, recentRecordings: [] }
+    const parsed = JSON.parse(raw) as Partial<PopupUiCache>
+    return {
+      connection: parsed.connection && typeof parsed.connection === 'object'
+        ? {
+            connected: !!parsed.connection.connected,
+            user: parsed.connection.user || null,
+            connectedAt: typeof parsed.connection.connectedAt === 'string' ? parsed.connection.connectedAt : null,
+            authError: typeof parsed.connection.authError === 'string' ? parsed.connection.authError : null
+          }
+        : null,
+      recentRecordings: sanitizeRecordingHistory(parsed.recentRecordings)
+    }
+  } catch {
+    return { connection: null, recentRecordings: [] }
+  }
+}
+
+function writePopupUiCache(cache: PopupUiCache): void {
+  try {
+    window.localStorage.setItem(POPUP_UI_CACHE_KEY, JSON.stringify(cache))
+  } catch {}
+}
+
 function PopupHeader({
   actionTitle,
   icon,
@@ -188,24 +221,20 @@ function PopupHeader({
 }
 
 function App(): React.ReactElement {
+  const initialCache = useMemo(readPopupUiCache, [])
   const [recordingState, setRecordingState] = useState<RecordingStatus>({
     recording: false,
     starting: false,
     stopping: false,
     recordingStartedAt: null
   })
-  const [recentRecordings, setRecentRecordings] = useState<RecordingHistoryItem[]>([])
+  const [recentRecordings, setRecentRecordings] = useState<RecordingHistoryItem[]>(initialCache.recentRecordings)
   const [micStatus, setMicStatus] = useState('')
   const [micButton, setMicButton] = useState({
     label: 'Microphone Settings',
     title: 'Choose which microphone should be included in recordings'
   })
-  const [meet2NoteConnection, setMeet2NoteConnection] = useState<Meet2NoteConnection>({
-    connected: false,
-    user: null,
-    connectedAt: null,
-    authError: null
-  })
+  const [meet2NoteConnection, setMeet2NoteConnection] = useState<Meet2NoteConnection | null>(initialCache.connection)
   const [now, setNow] = useState(Date.now())
   const [inFlight, setInFlight] = useState(false)
   const [connectingMeet2Note, setConnectingMeet2Note] = useState(false)
@@ -236,6 +265,13 @@ function App(): React.ReactElement {
     const connection = await getMeet2NoteConnection()
     setMeet2NoteConnection(connection)
   }, [])
+
+  useEffect(() => {
+    writePopupUiCache({
+      connection: meet2NoteConnection,
+      recentRecordings
+    })
+  }, [meet2NoteConnection, recentRecordings])
 
   useEffect(() => {
     void (async () => {
@@ -338,7 +374,8 @@ function App(): React.ReactElement {
     [recentRecordings, now]
   )
   const recordingButtonText = getRecordingButtonText(recordingState)
-  const recordingControlsAvailable = meet2NoteConnection.connected
+  const connectionLoaded = meet2NoteConnection !== null
+  const recordingControlsAvailable = meet2NoteConnection?.connected === true
   const connectionActionDisabled = recordingState.recording ||
     recordingState.starting ||
     recordingState.stopping
@@ -347,7 +384,7 @@ function App(): React.ReactElement {
     recordingState.starting ||
     recordingState.stopping
   const authRequiredUpload = visibleRecentRecordings.find(item => item.status === 'failed' && item.failureReason === 'auth_required')
-  const connectionErrorMessage = meet2NoteConnection.authError ||
+  const connectionErrorMessage = meet2NoteConnection?.authError ||
     authRequiredUpload?.error ||
     null
   const recentRecordingsEmptyText = 'No recordings from this browser yet'
@@ -563,7 +600,11 @@ function App(): React.ReactElement {
               {micStatus || 'Mic: Default microphone'}
             </Text>
             <Divider style={{ margin: '4px 0' }} />
-            {meet2NoteConnection.connected ? (
+            {!connectionLoaded ? (
+              <Button block disabled icon={<LoadingOutlined />}>
+                Loading settings...
+              </Button>
+            ) : meet2NoteConnection.connected ? (
               <Flex vertical gap={6}>
                 <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.25 }}>
                   Connected: {meet2NoteConnection.user?.email || meet2NoteConnection.user?.displayName || 'Meet2Note'}
@@ -608,7 +649,11 @@ function App(): React.ReactElement {
           </>
         ) : (
           <>
-            {recordingControlsAvailable ? (
+            {!connectionLoaded ? (
+              <Button block disabled icon={<LoadingOutlined />}>
+                Loading...
+              </Button>
+            ) : recordingControlsAvailable ? (
               <Button
                 block
                 disabled={actionDisabled}
