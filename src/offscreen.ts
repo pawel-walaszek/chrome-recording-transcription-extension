@@ -9,6 +9,7 @@ import type { MicPreferences } from './micPreferences'
 import { uploadRecordingOnce, type UploadRecordingInput } from './uploadClient'
 import {
   generateRecordingLocalId,
+  normalizeRecordingHistoryItem,
   type RecordingHistoryItem,
   type RecordingUploadStatus
 } from './recordingHistory'
@@ -621,29 +622,40 @@ function saveRecorderChunk(asset: 'video_audio' | 'microphone', blob: Blob, mime
 }
 
 async function persistHistoryItem(item: RecordingHistoryItem): Promise<RecordingHistoryItem[]> {
+  const normalizedItem = normalizeRecordingHistoryItem(item)
+  if (!normalizedItem) {
+    captureMessage('Recording history item could not be normalized; continuing with local spool state.', 'warning', {
+      operation: 'persistHistoryItem.normalize',
+      status: (item as Partial<RecordingHistoryItem>)?.status,
+      localId: (item as Partial<RecordingHistoryItem>)?.localId
+    })
+    return [item]
+  }
+
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'UPSERT_RECORDING_HISTORY_ITEM',
-      item
+      item: normalizedItem
     })
     if (response?.ok === false) {
       captureMessage('Recording history update rejected by background; continuing with local spool state.', 'warning', {
         operation: 'persistHistoryItem',
-        status: item.status,
-        localId: item.localId
+        status: normalizedItem.status,
+        localId: normalizedItem.localId,
+        error: typeof response.error === 'string' ? response.error : null
       })
-      return [item]
+      return [normalizedItem]
     }
     return Array.isArray(response?.items)
       ? response.items as RecordingHistoryItem[]
-      : [item]
+      : [normalizedItem]
   } catch (e) {
     captureException(e, {
       operation: 'persistHistoryItem',
-      status: item.status,
-      localId: item.localId
+      status: normalizedItem.status,
+      localId: normalizedItem.localId
     })
-    return [item]
+    return [normalizedItem]
   }
 }
 
