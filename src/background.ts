@@ -230,7 +230,9 @@ function hasPendingLocalUpload(items = recentRecordings): boolean {
     item.status === 'queued' ||
     item.status === 'uploading' ||
     item.status === 'retrying' ||
-    item.status === 'auth_required'
+    item.status === 'auth_required' ||
+    item.status === 'recording' ||
+    item.status === 'finalizing'
   )
 }
 

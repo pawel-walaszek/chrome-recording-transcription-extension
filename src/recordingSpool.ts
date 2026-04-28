@@ -92,6 +92,15 @@ function isUploadableStatus(status: RecordingUploadStatus): boolean {
     status === 'auth_required'
 }
 
+function countsAgainstSpoolCapacity(status: RecordingUploadStatus): boolean {
+  return status === 'recording' ||
+    status === 'finalizing' ||
+    status === 'queued' ||
+    status === 'uploading' ||
+    status === 'retrying' ||
+    status === 'auth_required'
+}
+
 export async function createSpoolRecording(record: RecordingSpoolRecord): Promise<void> {
   await enqueueSpoolWrite(async () => {
     const db = await openSpoolDb()
@@ -217,7 +226,7 @@ export async function getSpoolUsage(): Promise<{ recordings: number; bytes: numb
     )
   ])
   return {
-    recordings: records.filter(record => record.status !== 'uploaded').length,
+    recordings: records.filter(record => countsAgainstSpoolCapacity(record.status)).length,
     bytes: chunks.reduce((total, chunk) => total + chunk.sizeBytes, 0)
   }
 }

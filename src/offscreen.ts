@@ -40,6 +40,12 @@ const MAX_UPLOAD_QUEUE_ENTRIES = 3
 const MAX_UPLOAD_QUEUE_BYTES = 2 * 1024 * 1024 * 1024
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
 const INTERRUPTED_RECORDING_MESSAGE = 'Recording was interrupted before it could be finalized.'
+const ORPHANED_PENDING_UPLOAD_STATUSES: RecordingUploadStatus[] = [
+  'queued',
+  'uploading',
+  'retrying',
+  'auth_required'
+]
 
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
@@ -523,6 +529,37 @@ async function buildUploadQueueEntryFromSpool(record: RecordingSpoolRecord): Pro
   return spoolRecordToQueueEntry(record, videoBlob, microphoneBlob)
 }
 
+async function markSpoolRecordFailedUnrecoverable(
+  record: RecordingSpoolRecord,
+  message: string,
+  cleanupChunks = true
+): Promise<RecordingSpoolRecord> {
+  const failedRecord: RecordingSpoolRecord = {
+    ...record,
+    status: 'failed_unrecoverable',
+    error: message,
+    nextRetryAt: null,
+    updatedAt: new Date().toISOString()
+  }
+  await updateSpoolRecording(failedRecord)
+  await persistHistoryItem(failedRecord)
+  if (cleanupChunks) await deleteSpoolChunks(record.localId)
+  return failedRecord
+}
+
+async function markCurrentSpoolLocalError(message: string): Promise<void> {
+  if (!currentSpoolRecord) return
+  currentSpoolRecord = {
+    ...currentSpoolRecord,
+    status: 'local_error',
+    error: message,
+    nextRetryAt: null,
+    updatedAt: new Date().toISOString()
+  }
+  await updateSpoolRecording(currentSpoolRecord)
+  await persistHistoryItem(currentSpoolRecord)
+}
+
 function uploadInputFromQueueEntry(entry: UploadQueueEntry): UploadRecordingInput {
   return {
     title: entry.title,
@@ -543,16 +580,7 @@ function enqueueCurrentSpoolWrite(operation: () => Promise<void>): void {
       currentSpoolError = err
       log('Recording spool write failed', err)
       captureException(err, { operation: 'recordingSpool.write' })
-      if (currentSpoolRecord) {
-        currentSpoolRecord = {
-          ...currentSpoolRecord,
-          status: 'local_error',
-          error: err.message,
-          updatedAt: new Date().toISOString()
-        }
-        void updateSpoolRecording(currentSpoolRecord).catch(() => {})
-        void persistHistoryItem(currentSpoolRecord).catch(() => {})
-      }
+      void markCurrentSpoolLocalError(err.message).catch(() => {})
       try { stopActiveRecorders() } catch {}
     })
 }
@@ -805,7 +833,13 @@ async function enqueueUpload(entry: UploadQueueEntry): Promise<void> {
 }
 
 async function assertSpoolCapacityBeforeRecording(): Promise<void> {
-  const usage = await getSpoolUsage().catch(() => ({ recordings: 0, bytes: 0 }))
+  let usage: Awaited<ReturnType<typeof getSpoolUsage>>
+  try {
+    usage = await getSpoolUsage()
+  } catch (e) {
+    captureException(e, { operation: 'assertSpoolCapacityBeforeRecording.getSpoolUsage' })
+    throw new Error('Local recording storage is unavailable. Refresh the extension or free browser storage before starting another recording.')
+  }
   if (usage.recordings >= MAX_UPLOAD_QUEUE_ENTRIES || usage.bytes >= MAX_UPLOAD_QUEUE_BYTES) {
     throw new Error('Local recording storage is full. Wait for pending uploads to finish before starting another recording.')
   }
@@ -827,21 +861,37 @@ async function markInterruptedSpoolRecordings(): Promise<void> {
     const message = counts.video_audio > 0
       ? 'Recording was interrupted before finalization; saved chunks cannot be safely uploaded as a complete recording.'
       : INTERRUPTED_RECORDING_MESSAGE
-    const nextRecord: RecordingSpoolRecord = {
-      ...record,
-      status: 'failed_unrecoverable',
-      error: message,
-      nextRetryAt: null,
-      updatedAt: new Date().toISOString()
+    await markSpoolRecordFailedUnrecoverable(record, message)
+  }
+}
+
+async function readLocalRecordingHistory(): Promise<RecordingHistoryItem[]> {
+  const response = await chrome.runtime.sendMessage({ type: 'READ_RECORDING_HISTORY' }).catch(() => null)
+  return Array.isArray(response?.items) ? response.items as RecordingHistoryItem[] : []
+}
+
+async function markOrphanedPendingHistoryItems(uploadableSpoolLocalIds: Set<string>): Promise<void> {
+  const history = await readLocalRecordingHistory()
+  for (const item of history) {
+    if (
+      ORPHANED_PENDING_UPLOAD_STATUSES.includes(item.status) &&
+      !uploadableSpoolLocalIds.has(item.localId)
+    ) {
+      await persistHistoryItem({
+        ...item,
+        status: 'failed_unrecoverable',
+        error: 'Recording data is missing from the local spool. Start a new recording to retry.',
+        nextRetryAt: null,
+        updatedAt: new Date().toISOString()
+      })
     }
-    await updateSpoolRecording(nextRecord)
-    await persistHistoryItem(nextRecord)
   }
 }
 
 async function restoreUploadQueueFromSpool(): Promise<void> {
   await markInterruptedSpoolRecordings()
   const records = await listUploadableSpoolRecordings()
+  await markOrphanedPendingHistoryItems(new Set(records.map(record => record.localId)))
   let restored = 0
   const canResumeAuthRequired = await requestMeet2NoteExtensionToken()
     .then(() => true)
@@ -864,15 +914,7 @@ async function restoreUploadQueueFromSpool(): Promise<void> {
       updatedAt: new Date().toISOString()
     })
     if (!entry) {
-      const failedRecord: RecordingSpoolRecord = {
-        ...record,
-        status: 'failed_unrecoverable',
-        error: 'Recording data is missing from the local spool.',
-        nextRetryAt: null,
-        updatedAt: new Date().toISOString()
-      }
-      await updateSpoolRecording(failedRecord)
-      await persistHistoryItem(failedRecord)
+      await markSpoolRecordFailedUnrecoverable(record, 'Recording data is missing from the local spool.')
       continue
     }
     uploadQueue.push(entry)
@@ -1168,6 +1210,11 @@ async function prepareAndRecord(
           log('Skipping upload for abandoned recording', recordingId)
           return
         }
+        if (microphoneStoppedPromise) await microphoneStoppedPromise.catch(() => null)
+        await currentSpoolWriteQueue
+        if (currentSpoolError) throw currentSpoolError
+        if (!currentSpoolRecord) throw new Error('Missing local recording spool record.')
+
         if (currentSpoolRecord) {
           currentSpoolRecord = {
             ...currentSpoolRecord,
@@ -1177,10 +1224,6 @@ async function prepareAndRecord(
           await updateSpoolRecording(currentSpoolRecord)
           await persistHistoryItem(currentSpoolRecord)
         }
-        if (microphoneStoppedPromise) await microphoneStoppedPromise.catch(() => null)
-        await currentSpoolWriteQueue
-        if (currentSpoolError) throw currentSpoolError
-        if (!currentSpoolRecord) throw new Error('Missing local recording spool record.')
 
         const stoppedAt = new Date().toISOString()
         currentSpoolRecord = {
@@ -1206,6 +1249,7 @@ async function prepareAndRecord(
       } catch (e) {
         log('Finalize/Upload failed', e)
         captureException(e, { operation: 'finalizeRecording' })
+        await markCurrentSpoolLocalError(e instanceof Error ? e.message : String(e)).catch(() => {})
       } finally {
         cleanupRecordingResources()
         mediaRecorder = null
@@ -1225,7 +1269,7 @@ async function prepareAndRecord(
 
   if (microphoneRecorder) {
     try {
-      microphoneRecorder.start(1000)
+      microphoneRecorder.start(MEDIA_RECORDER_TIMESLICE_MS)
     } catch (e) {
       log('microphone recorder start failed; continuing with video_audio only', e)
       captureException(e, { operation: 'startMicrophoneRecorder' })
@@ -1233,7 +1277,7 @@ async function prepareAndRecord(
       microphoneRecorder = null
     }
   }
-  mediaRecorder.start(1000)
+  mediaRecorder.start(MEDIA_RECORDER_TIMESLICE_MS)
 
   // Jeśli karta nawiguje albo kończy się ścieżka wideo, zatrzymaj automatycznie.
   baseStream.getVideoTracks()[0]?.addEventListener('ended', () => {
