@@ -582,4 +582,17 @@ chrome.runtime.onSuspend?.addListener(async () => {
   setBadge(false)
 })
 
-void hydrateRecentRecordings().catch(() => {})
+async function initializeRecentRecordings(): Promise<void> {
+  if (!(await hasOffscreenContext())) {
+    recentRecordings = (await markIncompleteRecordingsFailed(RECORDER_CONTEXT_INTERRUPTED_MESSAGE)).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+    broadcastUploadQueueState()
+    return
+  }
+
+  await hydrateRecentRecordings()
+}
+
+void initializeRecentRecordings().catch((e) => {
+  bglog('Initial recording history hydration failed', e)
+  captureException(e, { operation: 'initializeRecentRecordings' })
+})

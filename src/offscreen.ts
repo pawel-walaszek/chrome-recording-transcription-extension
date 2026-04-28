@@ -479,12 +479,14 @@ async function updateQueueEntry(
     'error'
   >> = {}
 ): Promise<void> {
-  Object.assign(entry, {
+  const nextEntry: UploadQueueEntry = {
+    ...entry,
     status,
     updatedAt: new Date().toISOString(),
     ...patch
-  })
-  await persistQueueEntry(entry)
+  }
+  await persistQueueEntry(nextEntry)
+  Object.assign(entry, nextEntry)
 }
 
 function removeQueueEntry(localId: string): void {
@@ -504,14 +506,16 @@ async function rejectQueueEntryForMemoryLimit(entry: UploadQueueEntry): Promise<
   const currentBytes = getUploadQueueBytes()
   const entryBytes = getQueueEntryBytes(entry)
   const message = 'Upload queue is full. Try again after pending uploads finish.'
-
-  Object.assign(entry, {
-    status: 'failed' as const,
+  const failedEntry: UploadQueueEntry = {
+    ...entry,
+    status: 'failed',
     error: message,
     nextRetryAt: null,
     updatedAt: now
-  })
-  await persistQueueEntry(entry)
+  }
+
+  await persistQueueEntry(failedEntry)
+  Object.assign(entry, failedEntry)
   captureMessage(
     'Upload queue rejected recording because memory limit was reached.',
     'warning',
@@ -524,6 +528,28 @@ async function rejectQueueEntryForMemoryLimit(entry: UploadQueueEntry): Promise<
       maxQueueBytes: MAX_UPLOAD_QUEUE_BYTES
     }
   )
+}
+
+function getNextReadyUploadQueueEntry(now: number): UploadQueueEntry | null {
+  return uploadQueue.find((entry) => {
+    if (entry.status === 'queued' || entry.status === 'uploading') return true
+    if (entry.status !== 'retrying') return false
+    return entry.nextRetryAt == null || entry.nextRetryAt <= now
+  }) ?? null
+}
+
+function getNextUploadRetryDelayMs(now: number): number | null {
+  let nextRetryDelayMs: number | null = null
+
+  for (const entry of uploadQueue) {
+    if (entry.status !== 'retrying' || entry.nextRetryAt == null || entry.nextRetryAt <= now) continue
+    const delayMs = entry.nextRetryAt - now
+    if (nextRetryDelayMs == null || delayMs < nextRetryDelayMs) {
+      nextRetryDelayMs = delayMs
+    }
+  }
+
+  return nextRetryDelayMs
 }
 
 async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'done' | 'auth_required'> {
@@ -582,11 +608,50 @@ async function runUploadQueueWorker(): Promise<void> {
 
   try {
     while (true) {
-      const nextEntry = uploadQueue.find(entry => entry.status === 'queued')
-      if (!nextEntry) return
+      const now = Date.now()
+      const nextEntry = getNextReadyUploadQueueEntry(now)
+      if (!nextEntry) {
+        const nextRetryDelayMs = getNextUploadRetryDelayMs(now)
+        if (nextRetryDelayMs == null) return
+        await sleep(nextRetryDelayMs)
+        continue
+      }
 
-      const result = await uploadQueueEntryUntilTerminal(nextEntry)
-      if (result === 'auth_required') return
+      try {
+        const result = await uploadQueueEntryUntilTerminal(nextEntry)
+        if (result === 'auth_required') return
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e)
+        captureException(e, {
+          operation: 'runUploadQueueWorker.entry',
+          localId: nextEntry.localId,
+          status: nextEntry.status
+        })
+        log('Upload queue entry crashed; re-queueing entry', {
+          localId: nextEntry.localId,
+          status: nextEntry.status,
+          error: e
+        })
+
+        try {
+          await updateQueueEntry(nextEntry, 'queued', {
+            error: errorMessage,
+            nextRetryAt: null
+          })
+        } catch (recoveryError) {
+          captureException(recoveryError, {
+            operation: 'runUploadQueueWorker.entry.recovery',
+            localId: nextEntry.localId,
+            status: nextEntry.status
+          })
+          Object.assign(nextEntry, {
+            status: 'queued' as const,
+            error: errorMessage,
+            nextRetryAt: null,
+            updatedAt: new Date().toISOString()
+          })
+        }
+      }
     }
   } finally {
     uploadWorkerRunning = false
