@@ -127,25 +127,17 @@ function formatTime(value: string): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function getHistoryStatusText(item: RecordingHistoryItem, now: number): string {
-  if (item.status === 'recording') return 'Recording - saved locally'
-  if (item.status === 'finalizing') return 'Saving local recording'
-  if (item.status === 'upload_queued') {
-    if (item.nextRetryAt && item.nextRetryAt > now) {
-      return `Retrying in ${Math.ceil((item.nextRetryAt - now) / 1000)}s`
-    }
-    return 'Waiting to upload'
-  }
-  if (item.status === 'uploading') return item.attempt > 1 ? `Uploading, attempt ${item.attempt}` : 'Uploading...'
-  if (item.status === 'processing_queued') return 'Waiting for processing'
-  if (item.status === 'processing') return 'Processing in Meet2Note'
-  if (item.status === 'ready') return 'Ready in Meet2Note'
-  if (item.status === 'canceled') return 'Canceled'
-  if (item.status === 'expired') return 'Expired in Meet2Note'
-  if (item.failureReason === 'auth_required') return 'Reconnect to upload'
-  if (item.failureReason === 'local_error') return item.error || 'Local save failed'
-  if (item.failureReason === 'unrecoverable') return item.error || 'Recording could not be recovered'
-  return item.error || 'Upload failed'
+function formatDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString()
+}
+
+function getHistoryTimelineText(item: RecordingHistoryItem): string {
+  if (item.displayTimeline) return item.displayTimeline
+  return [formatDate(item.startedAt), formatTime(item.startedAt), formatDuration(item.durationMs)]
+    .filter(Boolean)
+    .join(' - ')
 }
 
 function getHistoryTagColor(status: RecordingUploadStatus): string {
@@ -718,13 +710,7 @@ function App(): React.ReactElement {
                       </Tag>
                     </Flex>
                     <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
-                      {formatTime(item.startedAt)} · {formatDuration(item.durationMs)}
-                    </Text>
-                    <Text
-                      type={item.status === 'failed' ? 'danger' : 'secondary'}
-                      style={{ fontSize: 11, lineHeight: 1.2 }}
-                    >
-                      {getHistoryStatusText(item, now)}
+                      {getHistoryTimelineText(item)}
                     </Text>
                   </Flex>
                 ))

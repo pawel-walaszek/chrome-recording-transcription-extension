@@ -50,6 +50,7 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 8. Lokalne `failed` bez `backendRecordingId` i bez możliwości wznowienia uploadu nie reprezentują nagrania; mogą być widoczne w popupie maksymalnie 3 minuty jako diagnostyka, nie powinny wypierać pozycji backendowych i nie są propagowane do backendu.
 9. Snapshot lokalnej kolejki z offscreen nie może zastępować backendowej listy nagrań; background scala go z cachem backendu.
 10. Popup może używać lokalnego cache UI dla stanu połączenia i ostatniej listy nagrań, żeby pierwszy render nie pokazywał fałszywego stanu rozłączenia ani pustej listy przed asynchroniczną synchronizacją.
+11. Popup pokazuje dla pozycji nagrania tylko tytuł, status oraz jedną linię czasu. Jeśli backend zwraca `displayTimeline`, popup renderuje tę wartość bez własnego formatowania; fallback lokalny istnieje tylko dla wpisów, których backend jeszcze nie zna albo dla starszej wersji API.
 
 ## Komunikacja
 

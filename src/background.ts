@@ -168,6 +168,7 @@ function backendRecordingToHistoryItem(recording: BackendRecordingListItem): Rec
     assets: [],
     error: recording.status === 'failed' ? 'Processing failed in Meet2Note.' : null,
     failureReason: recording.status === 'failed' ? 'upload_error' : null,
+    displayTimeline: recording.displayTimeline,
     createdAt: recording.createdAt,
     updatedAt: recording.updatedAt || recording.createdAt
   }
@@ -222,6 +223,7 @@ function mergeRecordingHistory(
       backendRecordingId: backendId,
       error: backendItem.error,
       failureReason: backendItem.failureReason,
+      displayTimeline: backendItem.displayTimeline,
       createdAt: backendItem.createdAt,
       updatedAt: backendItem.updatedAt
     }

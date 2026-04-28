@@ -13,6 +13,7 @@ export interface BackendRecordingListItem {
   durationMs: number | null
   createdAt: string
   updatedAt: string
+  displayTimeline?: string
 }
 
 const LIST_RECORDINGS_TIMEOUT_MS = 30_000
@@ -53,6 +54,7 @@ function parseBackendRecording(value: unknown): BackendRecordingListItem | null 
   const createdAt = typeof record.createdAt === 'string' ? record.createdAt.trim() : ''
   const updatedAtRaw = typeof record.updatedAt === 'string' ? record.updatedAt.trim() : ''
   const updatedAt = updatedAtRaw || createdAt
+  const displayTimeline = typeof record.displayTimeline === 'string' ? record.displayTimeline.trim() : ''
 
   if (!id || !status || !createdAt) return null
 
@@ -64,7 +66,8 @@ function parseBackendRecording(value: unknown): BackendRecordingListItem | null 
       ? record.durationMs
       : null,
     createdAt,
-    updatedAt
+    updatedAt,
+    ...(displayTimeline ? { displayTimeline } : {})
   }
 }
 

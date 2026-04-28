@@ -38,6 +38,7 @@ export interface RecordingHistoryItem {
   assets: RecordingUploadAsset[]
   error: string | null
   failureReason: RecordingFailureReason | null
+  displayTimeline?: string
   createdAt: string
   updatedAt: string
 }
@@ -180,6 +181,7 @@ function sanitizeHistoryItem(value: unknown): RecordingHistoryItem | null {
     assets: sanitizeAssets(record.assets),
     error: nullableString(record.error),
     failureReason: status === 'failed' ? normalizeFailureReason(rawStatus, record.failureReason) : null,
+    displayTimeline: optionalString(record.displayTimeline),
     createdAt,
     updatedAt
   }
