@@ -32,7 +32,10 @@ let autoStopMeetTabId: number | null = null
 let recordingStartedAt: number | null = null
 const meetTabsInMeeting = new Set<number>()
 let recentRecordings: RecordingHistoryItem[] = []
+let backendRecordingsRefreshPromise: Promise<void> | null = null
+let backendRecordingsLastRefreshedAt = 0
 const RECORDER_CONTEXT_INTERRUPTED_MESSAGE = 'Upload was interrupted by an extension restart or refresh.'
+const BACKEND_RECORDINGS_REFRESH_THROTTLE_MS = 15_000
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 const DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS = 15_000
@@ -185,6 +188,24 @@ function mergeRecordingHistory(
   }
 
   return normalizeRecordingHistory(Array.from(byLocalId.values()))
+}
+
+function scheduleBackendRecordingsRefresh(): void {
+  const now = Date.now()
+  if (backendRecordingsRefreshPromise) return
+  if (now - backendRecordingsLastRefreshedAt < BACKEND_RECORDINGS_REFRESH_THROTTLE_MS) return
+
+  backendRecordingsRefreshPromise = hydrateRecentRecordings()
+    .then(() => {
+      backendRecordingsLastRefreshedAt = Date.now()
+      broadcastUploadQueueState()
+    })
+    .catch((e: any) => {
+      captureException(e, { operation: 'scheduleBackendRecordingsRefresh' })
+    })
+    .finally(() => {
+      backendRecordingsRefreshPromise = null
+    })
 }
 
 function broadcastUploadQueueState(items = recentRecordings): void {
@@ -653,13 +674,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         broadcastUploadQueueState()
         sendResponse({ ok: true, items: recentRecordings })
 
-        void hydrateRecentRecordings()
-          .then(() => {
-            broadcastUploadQueueState()
-          })
-          .catch((e: any) => {
-            captureException(e, { operation: 'UPSERT_RECORDING_HISTORY_ITEM_REFRESH' })
-          })
+        if (item.status === 'uploaded' && item.backendRecordingId) {
+          scheduleBackendRecordingsRefresh()
+        }
       } catch (e: any) {
         captureException(e, { operation: 'UPSERT_RECORDING_HISTORY_ITEM' })
         sendResponse({ ok: false, error: e?.message || String(e) })
