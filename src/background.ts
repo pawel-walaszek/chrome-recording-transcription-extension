@@ -25,6 +25,7 @@ let autoStopMeetTabId: number | null = null
 let recordingStartedAt: number | null = null
 const meetTabsInMeeting = new Set<number>()
 let recentRecordings: RecordingHistoryItem[] = []
+const RECORDER_CONTEXT_INTERRUPTED_MESSAGE = 'Upload was interrupted by an extension restart or refresh.'
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 const DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS = 15_000
@@ -140,7 +141,7 @@ async function hasOffscreenContext(): Promise<boolean> {
 async function ensureOffscreen(): Promise<void> {
   const have = await hasOffscreenContext()
   if (!have) {
-    recentRecordings = (await markIncompleteRecordingsFailed('Upload data was lost when the recorder context was recreated.')).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+    recentRecordings = (await markIncompleteRecordingsFailed(RECORDER_CONTEXT_INTERRUPTED_MESSAGE)).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
     broadcastUploadQueueState()
     bglog('Creating offscreen document…')
     await chrome.offscreen.createDocument({
@@ -188,7 +189,7 @@ async function resetOffscreen(): Promise<void> {
     if (await hasOffscreenContext()) {
       await chrome.offscreen.closeDocument()
       await wait(250)
-      recentRecordings = (await markIncompleteRecordingsFailed('Upload data was lost when the recorder context was reset.')).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+      recentRecordings = (await markIncompleteRecordingsFailed(RECORDER_CONTEXT_INTERRUPTED_MESSAGE)).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
       broadcastUploadQueueState()
     }
   } catch (e) {
@@ -260,7 +261,7 @@ chrome.runtime.onConnect.addListener((port) => {
     void (async () => {
       try {
         if (await hasOffscreenContext()) return
-        recentRecordings = (await markIncompleteRecordingsFailed('Upload data was lost when the recorder context disconnected.')).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+        recentRecordings = (await markIncompleteRecordingsFailed(RECORDER_CONTEXT_INTERRUPTED_MESSAGE)).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
         broadcastUploadQueueState()
       } catch (e) {
         bglog('Failed to mark incomplete recordings after offscreen disconnect', e)

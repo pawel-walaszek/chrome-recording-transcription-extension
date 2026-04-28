@@ -411,6 +411,17 @@ function fallbackTitleFromUrl(url?: string | null): string {
   }
 }
 
+function sanitizeTabUrlForHistory(url?: string | null): string | undefined {
+  try {
+    if (!url) return undefined
+    const u = new URL(url)
+    const path = u.pathname.replace(/\/+$/, '')
+    return `${u.origin}${path || '/'}`
+  } catch {
+    return undefined
+  }
+}
+
 function buildUploadQueueEntry(videoBlob: Blob, microphoneBlob: Blob | null): UploadQueueEntry {
   const now = Date.now()
   const startedAtMs = currentRecordingStartedAtMs || now
@@ -418,6 +429,7 @@ function buildUploadQueueEntry(videoBlob: Blob, microphoneBlob: Blob | null): Up
   const tabUrl = currentRecordingContext?.tabUrl || null
   const meetingId = inferMeetingId(tabUrl)
   const title = tabTitle || fallbackTitleFromUrl(tabUrl)
+  const sanitizedTabUrl = sanitizeTabUrlForHistory(tabUrl)
   const timestamp = new Date(now).toISOString()
 
   return {
@@ -426,7 +438,7 @@ function buildUploadQueueEntry(videoBlob: Blob, microphoneBlob: Blob | null): Up
     title,
     meetingId,
     meetingTitle: tabTitle || undefined,
-    tabUrl: tabUrl || undefined,
+    tabUrl: sanitizedTabUrl,
     startedAt: new Date(startedAtMs).toISOString(),
     stoppedAt: timestamp,
     durationMs: Math.max(1, now - startedAtMs),

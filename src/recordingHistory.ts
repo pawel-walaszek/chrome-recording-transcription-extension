@@ -35,6 +35,8 @@ export const POPUP_RECORDING_HISTORY_LIMIT = 5
 
 type StoredRecordingHistory = Partial<Record<typeof RECORDING_HISTORY_KEY, unknown>>
 
+let recordingHistoryWriteQueue: Promise<unknown> = Promise.resolve()
+
 const NON_TERMINAL_STATUSES = new Set<RecordingUploadStatus>([
   'queued',
   'uploading',
@@ -169,43 +171,68 @@ export function trimRecordingHistory(items: RecordingHistoryItem[]): RecordingHi
   return kept
 }
 
+function enqueueRecordingHistoryWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const run = recordingHistoryWriteQueue.catch(() => undefined).then(operation)
+  recordingHistoryWriteQueue = run.then(
+    () => undefined,
+    () => undefined
+  )
+  return run
+}
+
+async function writeRecordingHistoryInternal(items: RecordingHistoryItem[]): Promise<RecordingHistoryItem[]> {
+  const normalized = normalizeRecordingHistory(items)
+  await storageSet({ [RECORDING_HISTORY_KEY]: normalized })
+  return normalized
+}
+
 export async function readRecordingHistory(): Promise<RecordingHistoryItem[]> {
   const items = await storageGet<StoredRecordingHistory>([RECORDING_HISTORY_KEY])
   return normalizeRecordingHistory(items[RECORDING_HISTORY_KEY])
 }
 
 export async function writeRecordingHistory(items: RecordingHistoryItem[]): Promise<RecordingHistoryItem[]> {
-  const normalized = normalizeRecordingHistory(items)
-  await storageSet({ [RECORDING_HISTORY_KEY]: normalized })
-  return normalized
+  return enqueueRecordingHistoryWrite(() => writeRecordingHistoryInternal(items))
+}
+
+export async function updateRecordingHistory(
+  updater: (items: RecordingHistoryItem[]) => RecordingHistoryItem[] | Promise<RecordingHistoryItem[]>
+): Promise<RecordingHistoryItem[]> {
+  return enqueueRecordingHistoryWrite(async () => {
+    const history = await readRecordingHistory()
+    const next = await updater(history)
+    return writeRecordingHistoryInternal(next)
+  })
 }
 
 export async function upsertRecordingHistoryItem(item: RecordingHistoryItem): Promise<RecordingHistoryItem[]> {
-  const history = await readRecordingHistory()
-  const index = history.findIndex(existing => existing.localId === item.localId)
-  const next = [...history]
-  if (index >= 0) {
-    next[index] = item
-  } else {
-    next.unshift(item)
-  }
-  return writeRecordingHistory(next)
+  return updateRecordingHistory((history) => {
+    const index = history.findIndex(existing => existing.localId === item.localId)
+    const next = [...history]
+    if (index >= 0) {
+      next[index] = item
+    } else {
+      next.unshift(item)
+    }
+    return next
+  })
 }
 
 export async function markIncompleteRecordingsFailed(message: string): Promise<RecordingHistoryItem[]> {
-  const history = await readRecordingHistory()
-  const now = new Date().toISOString()
-  let changed = false
-  const next = history.map((item) => {
-    if (!NON_TERMINAL_STATUSES.has(item.status)) return item
-    changed = true
-    return {
-      ...item,
-      status: 'failed' as const,
-      error: message,
-      nextRetryAt: null,
-      updatedAt: now
-    }
+  return updateRecordingHistory((history) => {
+    const now = new Date().toISOString()
+    let changed = false
+    const next = history.map((item) => {
+      if (!NON_TERMINAL_STATUSES.has(item.status)) return item
+      changed = true
+      return {
+        ...item,
+        status: 'failed' as const,
+        error: message,
+        nextRetryAt: null,
+        updatedAt: now
+      }
+    })
+    return changed ? next : history
   })
-  return changed ? writeRecordingHistory(next) : history
 }

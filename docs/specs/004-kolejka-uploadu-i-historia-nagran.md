@@ -104,7 +104,7 @@ interface RecordingHistoryItem {
   title: string
   meetingId?: string
   meetingTitle?: string
-  tabUrl?: string
+  tabUrl?: string // origin + pathname, bez query i fragmentu
   startedAt: string
   stoppedAt: string
   durationMs: number
