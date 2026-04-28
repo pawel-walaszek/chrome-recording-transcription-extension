@@ -50,19 +50,48 @@ function setMeetReadyBadge(tabId: number, ready: boolean) {
   chrome.action.setBadgeText({ tabId, text: ready ? 'RDY' : '' }).catch?.(() => {})
 }
 
+function restoreMeetReadyBadges(preferredTabId?: number | null): void {
+  if (lastKnownRecording) return
+
+  const readyTabIds = new Set(meetTabsInMeeting)
+  if (typeof preferredTabId === 'number' && meetTabsInMeeting.has(preferredTabId)) {
+    readyTabIds.add(preferredTabId)
+  }
+
+  for (const tabId of readyTabIds) {
+    setMeetReadyBadge(tabId, true)
+  }
+}
+
+function clearRecordingBadges(preferredReadyTabId?: number | null): void {
+  void (async () => {
+    try {
+      await chrome.action.setBadgeText({ text: '' })
+      const tabs = await chrome.tabs.query({})
+      await Promise.all(tabs.map((tab) => (
+        typeof tab.id === 'number'
+          ? chrome.action.setBadgeText({ tabId: tab.id, text: '' })
+          : Promise.resolve()
+      )))
+    } catch (e) {
+      captureException(e, { operation: 'clearRecordingBadges' })
+      setBadge(false, preferredReadyTabId)
+      setBadge(false)
+    } finally {
+      restoreMeetReadyBadges(preferredReadyTabId)
+    }
+  })()
+}
+
 function clearRecordingAfterConfirmedStop(stoppedTabId: number | null): void {
   lastKnownRecording = false
   recordingStopping = false
-  setBadge(false, stoppedTabId)
   currentRecordingTabId = null
   autoStopMeetTabId = null
   recordingStartedAt = null
   persistRecordingState(false, null)
+  clearRecordingBadges(stoppedTabId)
   broadcastRecordingState()
-
-  if (typeof stoppedTabId === 'number' && meetTabsInMeeting.has(stoppedTabId)) {
-    setMeetReadyBadge(stoppedTabId, true)
-  }
 }
 
 function persistRecordingState(recording: boolean, startedAt: number | null): void {
@@ -330,7 +359,7 @@ async function resetOffscreen(): Promise<void> {
   autoStopMeetTabId = null
   recordingStartedAt = null
   persistRecordingState(false, null)
-  setBadge(false)
+  clearRecordingBadges()
 
   try {
     if (await hasOffscreenContext()) {
@@ -371,9 +400,10 @@ chrome.runtime.onConnect.addListener((port) => {
         recordingStopping = false
       }
       persistRecordingState(lastKnownRecording, recordingStartedAt)
-      setBadge(lastKnownRecording, currentRecordingTabId)
-      if (!lastKnownRecording && typeof stateTabId === 'number' && meetTabsInMeeting.has(stateTabId)) {
-        setMeetReadyBadge(stateTabId, true)
+      if (lastKnownRecording) {
+        setBadge(true, currentRecordingTabId)
+      } else {
+        clearRecordingBadges(stateTabId)
       }
       broadcastRecordingState()
       if (!lastKnownRecording) {
@@ -401,7 +431,7 @@ chrome.runtime.onConnect.addListener((port) => {
     autoStopMeetTabId = null
     recordingStartedAt = null
     persistRecordingState(false, null)
-    setBadge(false)
+    clearRecordingBadges()
 
   })
 })
@@ -660,6 +690,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           ? sessionState.recordingStartRequestedAt
           : null
         recordingStopping = !!sessionState?.recordingStopping
+        if (!lastKnownRecording && !recordingStarting && !recordingStopping) {
+          clearRecordingBadges(currentRecordingTabId)
+        }
         await hydrateRecentRecordings()
       } catch {}
       scheduleBackendRecordingsRefresh()
@@ -777,10 +810,47 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 chrome.runtime.onSuspend?.addListener(async () => {
   try { if (offscreenPort) await postToOffscreen({ type: 'OFFSCREEN_STOP' }) } catch {}
-  setBadge(false)
+  clearRecordingBadges(currentRecordingTabId)
 })
 
+async function hydrateRecordingRuntimeState(): Promise<void> {
+  try {
+    const sessionState = await (chrome.storage as any)?.session?.get?.([
+      'recording',
+      'recordingStartedAt',
+      'recordingStarting',
+      'recordingStartingTabId',
+      'recordingStartRequestedAt',
+      'recordingStopping'
+    ])
+    lastKnownRecording = !!sessionState?.recording
+    recordingStartedAt = typeof sessionState?.recordingStartedAt === 'number'
+      ? sessionState.recordingStartedAt
+      : null
+    recordingStarting = !!sessionState?.recordingStarting
+    recordingStartingTabId = typeof sessionState?.recordingStartingTabId === 'number'
+      ? sessionState.recordingStartingTabId
+      : null
+    recordingStartRequestedAt = typeof sessionState?.recordingStartRequestedAt === 'number'
+      ? sessionState.recordingStartRequestedAt
+      : null
+    recordingStopping = !!sessionState?.recordingStopping
+
+    if (lastKnownRecording) {
+      setBadge(true, currentRecordingTabId)
+      return
+    }
+
+    if (!recordingStarting && !recordingStopping) {
+      clearRecordingBadges(currentRecordingTabId)
+    }
+  } catch (e) {
+    captureException(e, { operation: 'hydrateRecordingRuntimeState' })
+  }
+}
+
 async function initializeRecentRecordings(): Promise<void> {
+  await hydrateRecordingRuntimeState()
   await hydrateRecentRecordings()
   scheduleBackendRecordingsRefresh()
   wakeOffscreenForPendingUploads()
