@@ -16,6 +16,7 @@ import {
   appendSpoolChunk,
   createSpoolRecording,
   deleteSpoolChunks,
+  deleteSpoolRecording,
   getSpoolChunkCounts,
   getSpoolUsage,
   listInterruptedSpoolRecordings,
@@ -124,6 +125,7 @@ interface UploadQueueEntry extends RecordingHistoryItem {
 let uploadQueue: UploadQueueEntry[] = []
 let uploadWorkerRunning = false
 let uploadQueueWake: (() => void) | null = null
+let restoreUploadQueuePromise: Promise<void> | null = null
 
 function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
   const {
@@ -543,8 +545,17 @@ async function markSpoolRecordFailedUnrecoverable(
   }
   await updateSpoolRecording(failedRecord)
   await persistHistoryItem(failedRecord)
-  if (cleanupChunks) await deleteSpoolChunks(record.localId)
+  if (cleanupChunks) await cleanupTerminalSpoolEntry(record.localId, 'markSpoolRecordFailedUnrecoverable.cleanup')
   return failedRecord
+}
+
+async function cleanupTerminalSpoolEntry(localId: string, operation: string): Promise<void> {
+  try {
+    await deleteSpoolChunks(localId)
+    await deleteSpoolRecording(localId)
+  } catch (e) {
+    captureException(e, { operation, localId })
+  }
 }
 
 async function markCurrentSpoolLocalError(message: string): Promise<void> {
@@ -559,12 +570,7 @@ async function markCurrentSpoolLocalError(message: string): Promise<void> {
   }
   await updateSpoolRecording(currentSpoolRecord)
   await persistHistoryItem(currentSpoolRecord)
-  await deleteSpoolChunks(localId).catch((e) => {
-    captureException(e, {
-      operation: 'markCurrentSpoolLocalError.deleteSpoolChunks',
-      localId
-    })
-  })
+  await cleanupTerminalSpoolEntry(localId, 'markCurrentSpoolLocalError.cleanup')
 }
 
 function uploadInputFromQueueEntry(entry: UploadQueueEntry): UploadRecordingInput {
@@ -727,7 +733,7 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
         nextRetryAt: null,
         error: null
       })
-      await deleteSpoolChunks(entry.localId)
+      await cleanupTerminalSpoolEntry(entry.localId, 'uploadQueueEntryUntilTerminal.cleanupUploaded')
       removeQueueEntry(entry.localId)
       log('Upload completed', { localId: entry.localId, recordingId: result.recordingId, assets: result.assets, attempt })
       return 'done'
@@ -896,6 +902,15 @@ async function markOrphanedPendingHistoryItems(uploadableSpoolLocalIds: Set<stri
 }
 
 async function restoreUploadQueueFromSpool(): Promise<void> {
+  if (restoreUploadQueuePromise) return restoreUploadQueuePromise
+  restoreUploadQueuePromise = restoreUploadQueueFromSpoolOnce()
+    .finally(() => {
+      restoreUploadQueuePromise = null
+    })
+  return restoreUploadQueuePromise
+}
+
+async function restoreUploadQueueFromSpoolOnce(): Promise<void> {
   await markInterruptedSpoolRecordings()
   const records = await listUploadableSpoolRecordings()
   await markOrphanedPendingHistoryItems(new Set(records.map(record => record.localId)))
@@ -1018,12 +1033,7 @@ function markCurrentSpoolFailedUnrecoverable(message: string): void {
   currentSpoolRecord = nextRecord
   void updateSpoolRecording(nextRecord).catch(() => {})
   void persistHistoryItem(nextRecord).catch(() => {})
-  void deleteSpoolChunks(nextRecord.localId).catch((e) => {
-    captureException(e, {
-      operation: 'markCurrentSpoolFailedUnrecoverable.deleteSpoolChunks',
-      localId: nextRecord.localId
-    })
-  })
+  void cleanupTerminalSpoolEntry(nextRecord.localId, 'markCurrentSpoolFailedUnrecoverable.cleanup')
 }
 
 function forceClearStuckRecording(recordingId: number, reason: string, error?: unknown): void {

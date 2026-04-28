@@ -222,18 +222,50 @@ export async function deleteSpoolChunks(localId: string): Promise<void> {
   })
 }
 
+export async function deleteSpoolRecording(localId: string): Promise<void> {
+  await enqueueSpoolWrite(async () => {
+    const db = await openSpoolDb()
+    const tx = db.transaction(RECORDINGS_STORE, 'readwrite')
+    tx.objectStore(RECORDINGS_STORE).delete(localId)
+    await transactionComplete(tx)
+  })
+}
+
+async function sumChunkSizes(): Promise<number> {
+  const db = await openSpoolDb()
+  const tx = db.transaction(CHUNKS_STORE, 'readonly')
+  const store = tx.objectStore(CHUNKS_STORE)
+  const complete = transactionComplete(tx)
+  let totalBytes = 0
+
+  await new Promise<void>((resolve, reject) => {
+    const request = store.openCursor()
+    request.onerror = () => reject(request.error || new Error('Recording spool cursor failed.'))
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) {
+        resolve()
+        return
+      }
+      const chunk = cursor.value as RecordingSpoolChunk
+      totalBytes += chunk.sizeBytes
+      cursor.continue()
+    }
+  })
+  await complete
+  return totalBytes
+}
+
 export async function getSpoolUsage(): Promise<{ recordings: number; bytes: number }> {
   const db = await openSpoolDb()
-  const [records, chunks] = await Promise.all([
+  const [records, bytes] = await Promise.all([
     requestResult<RecordingSpoolRecord[]>(
       db.transaction(RECORDINGS_STORE, 'readonly').objectStore(RECORDINGS_STORE).getAll()
     ),
-    requestResult<RecordingSpoolChunk[]>(
-      db.transaction(CHUNKS_STORE, 'readonly').objectStore(CHUNKS_STORE).getAll()
-    )
+    sumChunkSizes()
   ])
   return {
     recordings: records.filter(record => countsAgainstSpoolCapacity(record.status)).length,
-    bytes: chunks.reduce((total, chunk) => total + chunk.sizeBytes, 0)
+    bytes
   }
 }
