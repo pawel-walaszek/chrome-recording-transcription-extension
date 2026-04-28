@@ -109,11 +109,16 @@ function setRecordingStopping(stopping: boolean): void {
 
 async function hydrateRecentRecordings(): Promise<RecordingHistoryItem[]> {
   try {
-    const localHistory = await readRecordingHistory()
-    const backendHistory = await readBackendRecordingHistory()
-    recentRecordings = mergeRecordingHistory(localHistory, backendHistory).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+    recentRecordings = (await readRecordingHistory()).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
     return recentRecordings
   } catch {}
+  return recentRecordings
+}
+
+async function refreshRecentRecordingsFromBackend(): Promise<RecordingHistoryItem[]> {
+  const localHistory = await readRecordingHistory()
+  const backendHistory = await readBackendRecordingHistory()
+  recentRecordings = mergeRecordingHistory(localHistory, backendHistory).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
   return recentRecordings
 }
 
@@ -175,7 +180,7 @@ function mergeRecordingHistory(
         byLocalId.set(existingLocalId, {
           ...existing,
           status: backendItem.status,
-          title: existing.title || backendItem.title,
+          title: mergedRecordingTitle(existing, backendItem),
           durationMs: backendItem.durationMs || existing.durationMs,
           backendRecordingId: backendId,
           error: backendItem.error,
@@ -190,12 +195,19 @@ function mergeRecordingHistory(
   return normalizeRecordingHistory(Array.from(byLocalId.values()))
 }
 
+function mergedRecordingTitle(existing: RecordingHistoryItem, backendItem: RecordingHistoryItem): string {
+  if (backendItem.title && (!existing.title || existing.title === 'Browser recording')) {
+    return backendItem.title
+  }
+  return existing.title || backendItem.title
+}
+
 function scheduleBackendRecordingsRefresh(): void {
   const now = Date.now()
   if (backendRecordingsRefreshPromise) return
   if (now - backendRecordingsLastRefreshedAt < BACKEND_RECORDINGS_REFRESH_THROTTLE_MS) return
 
-  backendRecordingsRefreshPromise = hydrateRecentRecordings()
+  backendRecordingsRefreshPromise = refreshRecentRecordingsFromBackend()
     .then(() => {
       backendRecordingsLastRefreshedAt = Date.now()
       broadcastUploadQueueState()
@@ -623,6 +635,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         recordingStopping = !!sessionState?.recordingStopping
         await hydrateRecentRecordings()
       } catch {}
+      scheduleBackendRecordingsRefresh()
       sendResponse({
         recording: lastKnownRecording,
         recordingStartedAt,
@@ -687,6 +700,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === 'READ_RECORDING_HISTORY') {
       try {
         await hydrateRecentRecordings()
+        scheduleBackendRecordingsRefresh()
         sendResponse({ ok: true, items: recentRecordings })
       } catch (e: any) {
         captureException(e, { operation: 'READ_RECORDING_HISTORY' })
@@ -741,6 +755,7 @@ async function initializeRecentRecordings(): Promise<void> {
   }
 
   await hydrateRecentRecordings()
+  scheduleBackendRecordingsRefresh()
 }
 
 void initializeRecentRecordings().catch((e) => {
