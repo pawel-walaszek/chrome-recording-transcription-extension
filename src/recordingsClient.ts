@@ -47,8 +47,9 @@ function parseBackendRecording(value: unknown): BackendRecordingListItem | null 
   const id = typeof record.id === 'string' ? record.id.trim() : ''
   const title = typeof record.title === 'string' ? record.title.trim() : ''
   const status = record.status
-  const createdAt = typeof record.createdAt === 'string' ? record.createdAt : ''
-  const updatedAt = typeof record.updatedAt === 'string' ? record.updatedAt : createdAt
+  const createdAt = typeof record.createdAt === 'string' ? record.createdAt.trim() : ''
+  const updatedAtRaw = typeof record.updatedAt === 'string' ? record.updatedAt.trim() : ''
+  const updatedAt = updatedAtRaw || createdAt
 
   if (!id || !isBackendRecordingStatus(status) || !createdAt) return null
 
