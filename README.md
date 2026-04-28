@@ -81,7 +81,7 @@ make check
 
 Przy zmianach widocznych w przeglądarce wykonaj też test dymny z [`docs/runbooks/002-smoke-test-po-zmianach.md`](docs/runbooks/002-smoke-test-po-zmianach.md): przebuduj projekt, przeładuj `dist/` w `chrome://extensions`, a następnie sprawdź nagrywanie w Google Meet, jeśli zmiana go dotyczy.
 
-Publikacja paczki ZIP dla serwisu Meet2Note jest opisana w [`docs/runbooks/003-publikacja-paczki-zip-wtyczki.md`](docs/runbooks/003-publikacja-paczki-zip-wtyczki.md). Zmiana `version` w `manifest.json` i push do `main` uruchamia workflow GitHub Actions, który buduje ZIP i publikuje go na serwerze.
+Publikacja paczki ZIP dla serwisu Meet2Note odbywa się przez workflow GitHub Actions `Publish Extension Package`. Zmiana `version` w `manifest.json` i push do `main` uruchamia workflow, który buduje ZIP i publikuje go na serwerze.
 
 
 Otwórz Google Meet i kliknij ikonę rozszerzenia:

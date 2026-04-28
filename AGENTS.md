@@ -27,7 +27,7 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Przy kazdym generowaniu nowej wtyczki podbijaj `version` w `manifest.json`.
 - Przy poprawkach bugow podbijaj ostatnia liczbe wersji, np. `1.1.0` -> `1.1.1`.
 - Zmiany UX, drobne funkcje pomocnicze i male usprawnienia podbijaja patch, nie minor. Minor podbijaj tylko dla znaczacych funkcji albo zmian zachowania o wiekszym zakresie.
-- Zmiana `version` w `manifest.json` jest sygnalem release paczki ZIP; po pushu do `main` workflow publikacji powinien zareagowac na taki bump zgodnie z `docs/runbooks/003-publikacja-paczki-zip-wtyczki.md`.
+- Zmiana `version` w `manifest.json` jest sygnalem release paczki ZIP; po pushu do `main` workflow `Publish Extension Package` powinien zbudowac i opublikowac paczke.
 
 ## Weryfikacja
 
