@@ -24,10 +24,11 @@ Szybko potwierdzic, ze build oraz najwazniejsze sciezki rozszerzenia dzialaja po
 9. Jesli popup pokazuje `Not connected`, kliknij `Connect to Meet2Note`, przejdz przez backend i potwierdz, ze callback zapisuje polaczenie.
 10. Uruchom `Start Recording`, zatrzymaj nagranie przez `Stop & Upload` i potwierdz upload do `https://meet2note.com`.
 11. Potwierdz, ze Chrome nie pobiera lokalnego pliku `.webm`.
-12. Jesli testujesz retry, czasowo odetnij backend albo siec, zatrzymaj nagranie i potwierdz, ze popup pokazuje ponawianie uploadu co okolo 15 sekund.
-13. Jesli testujesz autoryzacje, usun albo uszkodz token w `chrome.storage.local` i potwierdz, ze popup wymaga ponownego polaczenia zamiast bez konca ponawiac upload.
-14. Przywroc backend albo siec i potwierdz, ze kolejna proba uploadu konczy sie sukcesem.
-15. Sprawdz konsole service workera, offscreen document i karty testowej pod katem nowych bledow.
+12. Jesli dotknieto kolejki uploadu, potwierdz, ze popup pokazuje sekcje `Recent recordings` nawet przed pierwszym lokalnym nagraniem, a potem rozpocznij drugie nagranie zanim pierwszy upload sie zakonczy i potwierdz, ze popup pokazuje obie pozycje historii.
+13. Jesli testujesz retry, czasowo odetnij backend albo siec, zatrzymaj nagranie i potwierdz, ze popup pokazuje ponawianie uploadu konkretnej pozycji co okolo 15 sekund.
+14. Jesli testujesz autoryzacje, usun albo uszkodz token w `chrome.storage.local` i potwierdz, ze popup wymaga ponownego polaczenia zamiast bez konca ponawiac upload.
+15. Przywroc backend albo siec i potwierdz, ze kolejna proba uploadu konczy sie sukcesem.
+16. Sprawdz konsole service workera, offscreen document i karty testowej pod katem nowych bledow.
 
 ## Kryteria zaliczenia
 
@@ -38,6 +39,7 @@ Szybko potwierdzic, ze build oraz najwazniejsze sciezki rozszerzenia dzialaja po
 - Strona konfiguracji mikrofonu pokazuje `Default microphone` i pozwala zapisac wybor.
 - Nagrywanie startuje, zatrzymuje sie i wysyla assety do backendu, jesli dotknieto kodu recording/offscreen/upload/permissions.
 - Po sukcesie Chrome nie pobiera lokalnego `.webm`.
+- Upload jednego nagrania nie blokuje rozpoczecia kolejnego nagrania.
 - Na aktywnym spotkaniu Meet znacznik rozszerzenia pokazuje `RDY`, po starcie `REC`, a wyjscie ze spotkania zatrzymuje nagrywanie i uruchamia upload.
-- Przy bledzie uploadu popup pokazuje retry, a kolejna proba nastepuje co okolo 15 sekund.
+- Przy bledzie uploadu popup pokazuje retry dla konkretnej pozycji, a kolejna proba nastepuje co okolo 15 sekund.
 - Przy bledzie autoryzacji `401`/`403` popup pokazuje koniecznosc ponownego polaczenia z Meet2Note.

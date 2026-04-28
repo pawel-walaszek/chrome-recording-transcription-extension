@@ -1,9 +1,22 @@
 // src/offscreen.ts
 
 import { captureException, captureMessage, initDiagnostics } from './diagnostics'
-import { isMeet2NoteAuthError, markMeet2NoteReconnectRequired, Meet2NoteAuthError } from './extensionAuth'
+import {
+  isMeet2NoteAuthError,
+  markMeet2NoteReconnectRequired,
+  MEET2NOTE_EXTENSION_TOKEN_KEY,
+  Meet2NoteAuthError
+} from './extensionAuth'
 import type { MicPreferences } from './micPreferences'
 import { uploadRecordingOnce, type UploadRecordingInput } from './uploadClient'
+import {
+  generateRecordingLocalId,
+  POPUP_RECORDING_HISTORY_LIMIT,
+  readRecordingHistory,
+  type RecordingHistoryItem,
+  type RecordingUploadStatus,
+  upsertRecordingHistoryItem
+} from './recordingHistory'
 
 initDiagnostics('offscreen')
 
@@ -15,6 +28,8 @@ const WANT_MIC_ASSET = true
 const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 const UPLOAD_RETRY_INTERVAL_MS = 15_000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
+const MAX_UPLOAD_QUEUE_ENTRIES = 3
+const MAX_UPLOAD_QUEUE_BYTES = 2 * 1024 * 1024 * 1024
 
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
@@ -56,13 +71,70 @@ function pushState(recording: boolean, extra?: Record<string, any>) {
   getPort().postMessage({ type: 'RECORDING_STATE', recording, recordingStartedAt, ...extra })
 }
 
-type UploadStatus = 'idle' | 'uploading' | 'upload_retrying' | 'uploaded' | 'auth_required'
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms))
 
-function pushUploadState(status: UploadStatus, extra?: Record<string, any>) {
-  getPort().postMessage({ type: 'UPLOAD_STATE', status, ...extra })
+function wakeUploadQueueWorker(): void {
+  const wake = uploadQueueWake
+  uploadQueueWake = null
+  if (wake) wake()
 }
 
-const sleep = (ms: number) => new Promise(res => setTimeout(res, ms))
+function sleepUntilUploadQueueWakeOrTimeout(ms: number): Promise<void> {
+  let wake: (() => void) | null = null
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+  const wakePromise = new Promise<'wake'>((resolve) => {
+    wake = () => resolve('wake')
+    uploadQueueWake = wake
+  })
+  const timeoutPromise = new Promise<'timeout'>((resolve) => {
+    timeoutId = setTimeout(() => resolve('timeout'), ms)
+  })
+
+  return Promise.race([
+    timeoutPromise,
+    wakePromise
+  ]).then((result) => {
+    if (result === 'wake' && timeoutId) clearTimeout(timeoutId)
+    if (wake && uploadQueueWake === wake) uploadQueueWake = null
+  })
+}
+
+interface UploadQueueEntry extends RecordingHistoryItem {
+  videoBlob: Blob
+  microphoneBlob: Blob | null
+}
+
+let uploadQueue: UploadQueueEntry[] = []
+let uploadWorkerRunning = false
+let uploadQueueWake: (() => void) | null = null
+
+function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
+  const {
+    videoBlob: _videoBlob,
+    microphoneBlob: _microphoneBlob,
+    ...historyItem
+  } = entry
+  return historyItem
+}
+
+async function publishUploadQueueState(items?: RecordingHistoryItem[]): Promise<void> {
+  const history = items ?? await readRecordingHistory().catch(() => [])
+  try {
+    getPort().postMessage({
+      type: 'UPLOAD_QUEUE_STATE',
+      items: history.slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+    })
+  } catch (e) {
+    log('Upload queue state broadcast failed', e)
+    captureException(e, { operation: 'publishUploadQueueState' })
+  }
+}
+
+async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
+  const items = await upsertRecordingHistoryItem(toHistoryItem(entry))
+  await publishUploadQueueState(items)
+}
 
 let activeStreams = new Set<MediaStream>()
 let activeAudioContexts = new Set<AudioContext>()
@@ -316,7 +388,6 @@ let microphoneRecorder: MediaRecorder | null = null
 let chunks: BlobPart[] = []
 let microphoneChunks: BlobPart[] = []
 let capturing = false
-let uploadInProgress = false
 let currentRecordingStartedAtMs: number | null = null
 let currentRecordingContext: RecordingContext | null = null
 let microphoneStoppedPromise: Promise<Blob | null> | null = null
@@ -372,68 +443,289 @@ function fallbackTitleFromUrl(url?: string | null): string {
   }
 }
 
-function buildUploadInput(videoBlob: Blob, microphoneBlob: Blob | null): UploadRecordingInput {
+function sanitizeTabUrlForHistory(url?: string | null): string | undefined {
+  try {
+    if (!url) return undefined
+    const u = new URL(url)
+    const path = u.pathname.replace(/\/+$/, '')
+    return `${u.origin}${path || '/'}`
+  } catch {
+    return undefined
+  }
+}
+
+function buildUploadQueueEntry(videoBlob: Blob, microphoneBlob: Blob | null): UploadQueueEntry {
   const now = Date.now()
   const startedAtMs = currentRecordingStartedAtMs || now
   const tabTitle = currentRecordingContext?.tabTitle?.trim()
   const tabUrl = currentRecordingContext?.tabUrl || null
   const meetingId = inferMeetingId(tabUrl)
   const title = tabTitle || fallbackTitleFromUrl(tabUrl)
+  const sanitizedTabUrl = sanitizeTabUrlForHistory(tabUrl)
+  const timestamp = new Date(now).toISOString()
 
   return {
+    localId: generateRecordingLocalId(),
+    status: 'queued',
     title,
     meetingId,
     meetingTitle: tabTitle || undefined,
+    tabUrl: sanitizedTabUrl,
     startedAt: new Date(startedAtMs).toISOString(),
+    stoppedAt: timestamp,
     durationMs: Math.max(1, now - startedAtMs),
+    videoBytes: videoBlob.size,
+    microphoneBytes: microphoneBlob?.size || 0,
+    attempt: 0,
+    nextRetryAt: null,
+    backendRecordingId: null,
+    assets: microphoneBlob && microphoneBlob.size > 0 ? ['video_audio', 'microphone'] : ['video_audio'],
+    error: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
     videoBlob,
     microphoneBlob: microphoneBlob && microphoneBlob.size > 0 ? microphoneBlob : null
   }
 }
 
-async function uploadRecordingUntilSuccess(input: UploadRecordingInput, attempt = 1): Promise<void> {
-  uploadInProgress = true
-  let currentAttempt = attempt
+function uploadInputFromQueueEntry(entry: UploadQueueEntry): UploadRecordingInput {
+  return {
+    title: entry.title,
+    meetingId: entry.meetingId,
+    meetingTitle: entry.meetingTitle,
+    startedAt: entry.startedAt,
+    durationMs: entry.durationMs,
+    videoBlob: entry.videoBlob,
+    microphoneBlob: entry.microphoneBlob
+  }
+}
 
+async function updateQueueEntry(
+  entry: UploadQueueEntry,
+  status: RecordingUploadStatus,
+  patch: Partial<Pick<UploadQueueEntry,
+    'attempt' |
+    'nextRetryAt' |
+    'backendRecordingId' |
+    'assets' |
+    'error'
+  >> = {}
+): Promise<void> {
+  const nextEntry: UploadQueueEntry = {
+    ...entry,
+    status,
+    updatedAt: new Date().toISOString(),
+    ...patch
+  }
+  await persistQueueEntry(nextEntry)
+  Object.assign(entry, nextEntry)
+}
+
+function removeQueueEntry(localId: string): void {
+  uploadQueue = uploadQueue.filter(entry => entry.localId !== localId)
+}
+
+function getQueueEntryBytes(entry: UploadQueueEntry): number {
+  return entry.videoBlob.size + (entry.microphoneBlob?.size || 0)
+}
+
+function getUploadQueueBytes(entries = uploadQueue): number {
+  return entries.reduce((total, entry) => total + getQueueEntryBytes(entry), 0)
+}
+
+async function rejectQueueEntryForMemoryLimit(entry: UploadQueueEntry): Promise<void> {
+  const now = new Date().toISOString()
+  const currentBytes = getUploadQueueBytes()
+  const entryBytes = getQueueEntryBytes(entry)
+  const message = 'Upload queue is full. Try again after pending uploads finish.'
+  const failedEntry: UploadQueueEntry = {
+    ...entry,
+    status: 'failed',
+    error: message,
+    nextRetryAt: null,
+    updatedAt: now
+  }
+
+  await persistQueueEntry(failedEntry)
+  Object.assign(entry, failedEntry)
+  captureMessage(
+    'Upload queue rejected recording because memory limit was reached.',
+    'warning',
+    {
+      operation: 'enqueueUpload.memoryLimit',
+      queueEntries: uploadQueue.length,
+      queueBytes: currentBytes,
+      recordingBytes: entryBytes,
+      maxQueueEntries: MAX_UPLOAD_QUEUE_ENTRIES,
+      maxQueueBytes: MAX_UPLOAD_QUEUE_BYTES
+    }
+  )
+}
+
+function getNextReadyUploadQueueEntry(now: number): UploadQueueEntry | null {
+  return uploadQueue.find((entry) => {
+    if (entry.status === 'queued' || entry.status === 'uploading') return true
+    if (entry.status !== 'retrying') return false
+    return entry.nextRetryAt == null || entry.nextRetryAt <= now
+  }) ?? null
+}
+
+function getNextUploadRetryDelayMs(now: number): number | null {
+  let nextRetryDelayMs: number | null = null
+
+  for (const entry of uploadQueue) {
+    if (entry.status !== 'retrying' || entry.nextRetryAt == null || entry.nextRetryAt <= now) continue
+    const delayMs = entry.nextRetryAt - now
+    if (nextRetryDelayMs == null || delayMs < nextRetryDelayMs) {
+      nextRetryDelayMs = delayMs
+    }
+  }
+
+  return nextRetryDelayMs
+}
+
+async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'done' | 'auth_required'> {
   while (true) {
-    pushUploadState(currentAttempt === 1 ? 'uploading' : 'upload_retrying', { attempt: currentAttempt })
+    const attempt = entry.attempt + 1
+    await updateQueueEntry(entry, 'uploading', {
+      attempt,
+      nextRetryAt: null,
+      error: null
+    })
 
     try {
       const extensionToken = await requestMeet2NoteExtensionToken()
-      const result = await uploadRecordingOnce(input, extensionToken)
-      uploadInProgress = false
-      pushUploadState('uploaded', {
-        attempt: currentAttempt,
-        recordingId: result.recordingId,
-        assets: result.assets
+      const result = await uploadRecordingOnce(uploadInputFromQueueEntry(entry), extensionToken)
+      await updateQueueEntry(entry, 'uploaded', {
+        backendRecordingId: result.recordingId,
+        assets: result.assets,
+        nextRetryAt: null,
+        error: null
       })
-      log('Upload completed', { recordingId: result.recordingId, assets: result.assets, attempt: currentAttempt })
-      return
+      removeQueueEntry(entry.localId)
+      log('Upload completed', { localId: entry.localId, recordingId: result.recordingId, assets: result.assets, attempt })
+      return 'done'
     } catch (e) {
       if (isMeet2NoteAuthError(e)) {
-        uploadInProgress = false
         const message = e.message || 'Connect to Meet2Note before uploading.'
         await markMeet2NoteReconnectRequired(message).catch(() => {})
-        pushUploadState('auth_required', { error: message })
-        log('Upload requires Meet2Note connection', { attempt: currentAttempt })
-        return
+        await updateQueueEntry(entry, 'auth_required', {
+          error: message,
+          nextRetryAt: null
+        })
+        log('Upload requires Meet2Note connection', { localId: entry.localId, attempt })
+        return 'auth_required'
       }
 
       captureException(e, {
-        operation: 'uploadRecordingUntilSuccess',
-        attempt: currentAttempt,
+        operation: 'uploadQueueEntryUntilTerminal',
+        localId: entry.localId,
+        attempt,
         nextRetryMs: UPLOAD_RETRY_INTERVAL_MS
       })
       const nextRetryAt = Date.now() + UPLOAD_RETRY_INTERVAL_MS
-      log('Upload failed; retrying in 15 seconds', e)
-      pushUploadState('upload_retrying', {
-        attempt: currentAttempt,
+      log('Upload failed; retrying in 15 seconds', { localId: entry.localId, error: e })
+      await updateQueueEntry(entry, 'retrying', {
         error: e instanceof Error ? e.message : String(e),
         nextRetryAt
       })
       await sleep(UPLOAD_RETRY_INTERVAL_MS)
-      currentAttempt += 1
     }
+  }
+}
+
+async function runUploadQueueWorker(): Promise<void> {
+  if (uploadWorkerRunning) return
+  uploadWorkerRunning = true
+
+  try {
+    while (true) {
+      const now = Date.now()
+      const nextEntry = getNextReadyUploadQueueEntry(now)
+      if (!nextEntry) {
+        const nextRetryDelayMs = getNextUploadRetryDelayMs(now)
+        if (nextRetryDelayMs == null) return
+        await sleepUntilUploadQueueWakeOrTimeout(nextRetryDelayMs)
+        continue
+      }
+
+      try {
+        const result = await uploadQueueEntryUntilTerminal(nextEntry)
+        if (result === 'auth_required') return
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e)
+        captureException(e, {
+          operation: 'runUploadQueueWorker.entry',
+          localId: nextEntry.localId,
+          status: nextEntry.status
+        })
+        log('Upload queue entry crashed; re-queueing entry', {
+          localId: nextEntry.localId,
+          status: nextEntry.status,
+          error: e
+        })
+
+        try {
+          await updateQueueEntry(nextEntry, 'queued', {
+            error: errorMessage,
+            nextRetryAt: null
+          })
+        } catch (recoveryError) {
+          captureException(recoveryError, {
+            operation: 'runUploadQueueWorker.entry.recovery',
+            localId: nextEntry.localId,
+            status: nextEntry.status
+          })
+          Object.assign(nextEntry, {
+            status: 'queued' as const,
+            error: errorMessage,
+            nextRetryAt: null,
+            updatedAt: new Date().toISOString()
+          })
+        }
+      }
+    }
+  } finally {
+    uploadWorkerRunning = false
+  }
+}
+
+async function enqueueUpload(entry: UploadQueueEntry): Promise<void> {
+  const queuedBytes = getUploadQueueBytes()
+  const entryBytes = getQueueEntryBytes(entry)
+  if (
+    uploadQueue.length >= MAX_UPLOAD_QUEUE_ENTRIES ||
+    queuedBytes + entryBytes > MAX_UPLOAD_QUEUE_BYTES
+  ) {
+    await rejectQueueEntryForMemoryLimit(entry)
+    return
+  }
+
+  uploadQueue.push(entry)
+  await persistQueueEntry(entry)
+  wakeUploadQueueWorker()
+  void runUploadQueueWorker().catch((e) => {
+    log('Unexpected upload queue worker failure', e)
+    captureException(e, { operation: 'runUploadQueueWorker.unhandled' })
+  })
+}
+
+async function requeueAuthRequiredUploads(): Promise<void> {
+  let changed = false
+  for (const entry of uploadQueue) {
+    if (entry.status !== 'auth_required') continue
+    changed = true
+    await updateQueueEntry(entry, 'queued', {
+      nextRetryAt: null,
+      error: null
+    })
+  }
+  if (changed) {
+    wakeUploadQueueWorker()
+    void runUploadQueueWorker().catch((e) => {
+      log('Unexpected upload queue resume failure', e)
+      captureException(e, { operation: 'requeueAuthRequiredUploads.unhandled' })
+    })
   }
 }
 
@@ -669,10 +961,10 @@ async function prepareAndRecord(
         const microphoneBlob = microphoneStoppedPromise ? await microphoneStoppedPromise : null
         log('Finalizing; video chunks =', chunks.length, 'video blob.size =', videoBlob.size, 'microphone blob.size =', microphoneBlob?.size || 0)
 
-        const uploadInput = buildUploadInput(videoBlob, microphoneBlob)
-        void uploadRecordingUntilSuccess(uploadInput).catch((e) => {
-          log('Unexpected upload retry loop failure', e)
-          captureException(e, { operation: 'uploadRecordingUntilSuccess.unhandled' })
+        const uploadEntry = buildUploadQueueEntry(videoBlob, microphoneBlob)
+        void enqueueUpload(uploadEntry).catch((e) => {
+          log('Unexpected upload queue enqueue failure', e)
+          captureException(e, { operation: 'enqueueUpload.unhandled' })
         })
       } catch (e) {
         log('Finalize/Upload failed', e)
@@ -726,11 +1018,10 @@ async function startRecordingFromStreamId(
   recordingContext: RecordingContext
 ): Promise<RecordingStartInfo> {
   if (capturing) {
-    log('Already recording; ignoring start')
-    return { micIncluded: true }
+    throw new Error('Already recording.')
   }
-  if (uploadInProgress) {
-    throw new Error('Upload is still in progress')
+  if (stopRequested || mediaRecorder) {
+    throw new Error('Recording is still stopping. Try again in a moment.')
   }
   cleanupRecordingResources()
   try {
@@ -757,7 +1048,6 @@ function stopRecording(reason = 'manual'): Record<string, unknown> {
 
   if (!mediaRecorder || !capturing) {
     console.warn('[offscreen] Stop called but not recording')
-    if (uploadInProgress) return { ok: true, alreadyStopping: true }
     pushState(false)
     return { ok: true, alreadyStopped: true }
   }
@@ -817,7 +1107,12 @@ rpcPort.onMessage.addListener(async (msg: any) => {
         const res = await (chrome.storage as any)?.session?.get?.(['recording'])
         recording = !!res?.recording
       } catch {}
-      return respond(msg, { recording, uploadInProgress })
+      return respond(msg, {
+        recording,
+        uploadWorkerRunning,
+        queuedUploads: uploadQueue.length,
+        items: await readRecordingHistory().catch(() => [])
+      })
     }
 
     if (msg?.type === 'DIAG_ECHO') {
@@ -839,3 +1134,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } catch (e) { sendResponse({ ok: false, error: String(e) }) }
   return false
 })
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return
+  const tokenChange = changes[MEET2NOTE_EXTENSION_TOKEN_KEY]
+  if (!tokenChange || typeof tokenChange.newValue !== 'string' || !tokenChange.newValue.trim()) return
+  void requeueAuthRequiredUploads().catch((e) => {
+    log('resume auth-required uploads after token change failed', e)
+    captureException(e, { operation: 'storage.onChanged.resumeAuthUploads' })
+  })
+})
+
+void publishUploadQueueState().catch(() => {})

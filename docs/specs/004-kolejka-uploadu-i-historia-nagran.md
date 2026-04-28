@@ -32,6 +32,7 @@ Użytkownik powinien widzieć oddzielnie:
    d) Ręczny eksport lokalnego pliku `.webm`.
    e) Ręczne kasowanie pojedynczych pozycji historii z UI, o ile nie okaże się konieczne dla ergonomii.
    f) Migracja starszych, już utraconych uploadów zapisanych tylko jako globalny `uploadStatus`.
+   g) Pobieranie w popupie pełnej historii z panelu Meet2Note, dopóki backend nie udostępnia listy nagrań dla `extensionToken`.
 
 ## Obecne zachowanie
 
@@ -74,6 +75,7 @@ Użytkownik powinien widzieć oddzielnie:
    a) Domyślny limit: 10 ostatnich pozycji.
    b) Starsze pozycje terminalne są usuwane po przekroczeniu limitu.
    c) Pozycje nieterminalne (`queued`, `uploading`, `retrying`, `auth_required`) nie są usuwane przez limit, dopóki mają szansę na upload.
+   d) Pamięciowa kolejka blobów w offscreen ma twardy limit 3 pozycji i 2 GiB łącznego rozmiaru blobów; po przekroczeniu limitu nowa pozycja przechodzi w `failed` z czytelnym błędem.
 
 7. Globalny `uploadStatus` zostaje zastąpiony snapshotem kolejki.
    a) Popup nie powinien już blokować przycisku startu tylko dlatego, że istnieje aktywny upload.
@@ -102,7 +104,7 @@ interface RecordingHistoryItem {
   title: string
   meetingId?: string
   meetingTitle?: string
-  tabUrl?: string
+  tabUrl?: string // origin + pathname, bez query i fragmentu
   startedAt: string
   stoppedAt: string
   durationMs: number
@@ -215,6 +217,7 @@ interface UploadQueueSnapshotMessage {
    b) Widoczny limit w popupie: 5 najnowszych pozycji.
    c) Dane pozycji: tytuł, status, czas/długość, `recordingId` po sukcesie albo błąd/retry.
    d) UI ma być gęsty i czytelny w obecnej szerokości popupu.
+   e) Sekcja ma być widoczna także przy pustej lokalnej historii, żeby użytkownik widział, gdzie pojawią się statusy kolejki.
 
 3. Statusy użytkowe:
    a) `queued`: `Waiting to upload`.
@@ -310,6 +313,12 @@ make check
 
 5. Wznowienie `auth_required` po reconnect wymaga koordynacji storage i offscreen.
    a) Mitigacja: po zmianie tokenu background wysyła do offscreen komunikat wznowienia kolejki.
+
+6. Popup nie może jeszcze pobrać tej samej listy, którą pokazuje panel `/recordings`.
+   a) Obecny endpoint `GET /api/recordings` jest oparty o sesję webowego panelu.
+   b) Wtyczka ma trwały `extensionToken`, więc backend powinien udostępnić listę ostatnich nagrań po `Authorization: Bearer <extensionToken>`.
+   c) Backendowe rozszerzenie kontraktu jest opisane w issue [recording-backend#22](https://github.com/pawel-walaszek/recording-backend/issues/22).
+   d) Do czasu zmiany backendu popup pokazuje lokalną historię uploadów z tego profilu przeglądarki.
 
 ## Otwarte Pytania
 
