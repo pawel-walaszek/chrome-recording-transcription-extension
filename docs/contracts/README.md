@@ -2,6 +2,8 @@
 
 Ten katalog zawiera trwałe zasady projektu i kontrakty integracyjne, które obowiązują po zakończeniu prac implementacyjnych.
 
+Kontrakty nie są roboczymi specyfikacjami. Robocze plany przyszłych zmian trafiają do `docs/specs/`, a po implementacji tylko trwałe ustalenia zostają przeniesione tutaj. Zasady utrzymania katalogu są w [AGENTS.md](AGENTS.md).
+
 1. [Build i walidacja](build-and-validation.md) opisuje lokalny build, walidację, pakietowanie i konfigurację builda.
 2. [Integracja Meet2Note](meet2note-upload.md) opisuje połączenie konta, upload assetów, uprawnienia i granice odpowiedzialności backendu.
 3. [Mikrofon](microphone.md) opisuje konfigurację urządzenia wejściowego, zapis preferencji i fallbacki.

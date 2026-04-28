@@ -2,6 +2,8 @@
 
 Ten dokument opisuje docelowy wspólny kontrakt statusów nagrania dla rozszerzenia Chrome i backendu Meet2Note.
 
+Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS.md).
+
 Źródła kontekstu:
 
 1. Issue rozszerzenia: [#17](https://github.com/pawel-walaszek/chrome-recording-transcription-extension/issues/17).

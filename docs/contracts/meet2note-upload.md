@@ -2,6 +2,8 @@
 
 Ten dokument opisuje trwały kontrakt między rozszerzeniem Chrome i backendem Meet2Note.
 
+Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS.md).
+
 ## Repozytorium i środowiska
 
 1. Backend jest rozwijany w repozytorium `pawel-walaszek/recording-backend`.

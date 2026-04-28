@@ -2,6 +2,8 @@
 
 Ten dokument opisuje trwałe zasady konfiguracji i użycia mikrofonu w rozszerzeniu.
 
+Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS.md).
+
 ## UI i konfiguracja
 
 1. Popup prowadzi użytkownika do strony `micsetup.html`.

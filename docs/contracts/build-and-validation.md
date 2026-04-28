@@ -2,6 +2,8 @@
 
 Ten dokument opisuje wspierany lokalny przepływ budowania, walidacji i pakietowania rozszerzenia.
 
+Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS.md).
+
 ## Zasady
 
 1. Domyślny lokalny build i walidacja działają przez `make`, Docker Compose v2 i usługę `builder` z `compose.yml`.

@@ -13,6 +13,6 @@ Ten katalog zawiera dokumentacje techniczna i operacyjna projektu.
 ## Indeks
 
 - `system-map.md` - mapa komponentow rozszerzenia i zaleznosci.
-- `contracts/` - trwale zasady projektu i kontrakty integracyjne wspoldzielone z backendem Meet2Note.
+- `contracts/` - trwale zasady projektu i kontrakty integracyjne wspoldzielone z backendem Meet2Note; lokalne zasady sa w `contracts/AGENTS.md`, a indeks w `contracts/README.md`.
 - `runbooks/` - procedury walidacji i obslugi zmian.
 - `specs/` - robocze specyfikacje przyszlych wiekszych zmian funkcjonalnych.

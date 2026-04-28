@@ -2,6 +2,8 @@
 
 Ten dokument opisuje trwałe zasady lokalnej kolejki uploadu, spoolu i listy ostatnich nagrań w popupie.
 
+Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS.md).
+
 ## Odpowiedzialności
 
 1. Aktywne nagrywanie pozostaje pojedyncze; rozszerzenie nagrywa jedną kartę naraz.
