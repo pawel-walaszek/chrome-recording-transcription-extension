@@ -19,7 +19,7 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 2. `chrome.storage.local` przechowuje metadane historii, nie zawartość nagrań.
 3. Lokalny spool jest czyszczony dopiero po potwierdzonym uploadzie albo po przejściu pozycji w terminalny stan lokalnego błędu.
 4. Po restarcie service workera zakończone pozycje uploadu powinny być odtwarzane z IndexedDB.
-5. Aktywne, niefinalizowane nagranie utracone razem z offscreen może zostać oznaczone jako `failed_unrecoverable`.
+5. Aktywne, niefinalizowane nagranie utracone razem z offscreen może zostać oznaczone jako `failed` z metadaną `failureReason: "unrecoverable"`.
 
 ## Limity
 
@@ -60,5 +60,7 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 ## Statusy
 
 1. Docelowy kontrakt statusów jest opisany w [kontrakcie statusów nagrania](recording-statuses.md).
-2. Obecne lokalne statusy historyczne, takie jak `queued`, `retrying`, `uploaded`, `auth_required`, `local_error` i `failed_unrecoverable`, są detalem implementacyjnym do czasu pełnej migracji #17.
-3. Nowy kod powinien zmierzać do nazw z kontraktu statusów, w szczególności `upload_queued` zamiast ogólnego `queued` i `processing_queued` zamiast legacy `pending`.
+2. Lokalna kolejka używa `upload_queued` dla pozycji gotowych do uploadu, także wtedy, gdy pozycja czeka na zaplanowane retry.
+3. Po udanym uploadzie lokalny wpis przechodzi do `processing_queued`, dopóki backend nie zwróci dokładniejszego statusu.
+4. Błędy lokalne i konieczność reconnect są opisywane statusem `failed` oraz metadanym `failureReason`, a nie osobnymi statusami spoza kontraktu.
+5. Legacy statusy `queued`, `retrying`, `uploaded`, `pending`, `auth_required`, `local_error` i `failed_unrecoverable` muszą być mapowane do aktualnego kontraktu przy odczycie lokalnej historii.

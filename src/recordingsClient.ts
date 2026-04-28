@@ -4,7 +4,7 @@ import {
 } from './extensionAuth'
 import { makeMeet2NoteUrl } from './meet2noteConfig'
 
-export type BackendRecordingStatus = 'pending' | 'processing' | 'ready' | 'failed'
+export type BackendRecordingStatus = 'processing_queued' | 'processing' | 'ready' | 'failed' | 'expired'
 
 export interface BackendRecordingListItem {
   id: string
@@ -34,11 +34,14 @@ function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Pr
   })
 }
 
-function isBackendRecordingStatus(value: unknown): value is BackendRecordingStatus {
-  return value === 'pending' ||
+function normalizeBackendRecordingStatus(value: unknown): BackendRecordingStatus | null {
+  if (value === 'pending') return 'processing_queued'
+  if (value === 'processing_queued' ||
     value === 'processing' ||
     value === 'ready' ||
-    value === 'failed'
+    value === 'failed' ||
+    value === 'expired') return value
+  return null
 }
 
 function parseBackendRecording(value: unknown): BackendRecordingListItem | null {
@@ -46,12 +49,12 @@ function parseBackendRecording(value: unknown): BackendRecordingListItem | null 
   const record = value as Record<string, unknown>
   const id = typeof record.id === 'string' ? record.id.trim() : ''
   const title = typeof record.title === 'string' ? record.title.trim() : ''
-  const status = record.status
+  const status = normalizeBackendRecordingStatus(record.status)
   const createdAt = typeof record.createdAt === 'string' ? record.createdAt.trim() : ''
   const updatedAtRaw = typeof record.updatedAt === 'string' ? record.updatedAt.trim() : ''
   const updatedAt = updatedAtRaw || createdAt
 
-  if (!id || !isBackendRecordingStatus(status) || !createdAt) return null
+  if (!id || !status || !createdAt) return null
 
   return {
     id,

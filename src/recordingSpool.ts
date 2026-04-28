@@ -1,7 +1,6 @@
 import type {
   RecordingHistoryItem,
-  RecordingUploadAsset,
-  RecordingUploadStatus
+  RecordingUploadAsset
 } from './recordingHistory'
 
 const DB_NAME = 'meet2noteRecordingSpool'
@@ -92,20 +91,18 @@ function localIdAsset(localId: string, asset: RecordingUploadAsset): string {
   return `${localId}:${asset}`
 }
 
-function isUploadableStatus(status: RecordingUploadStatus): boolean {
-  return status === 'queued' ||
-    status === 'uploading' ||
-    status === 'retrying' ||
-    status === 'auth_required'
+function isUploadableRecord(record: RecordingSpoolRecord): boolean {
+  return record.status === 'upload_queued' ||
+    record.status === 'uploading' ||
+    (record.status === 'failed' && record.failureReason === 'auth_required')
 }
 
-function countsAgainstSpoolCapacity(status: RecordingUploadStatus): boolean {
-  return status === 'recording' ||
-    status === 'finalizing' ||
-    status === 'queued' ||
-    status === 'uploading' ||
-    status === 'retrying' ||
-    status === 'auth_required'
+function countsAgainstSpoolCapacity(record: RecordingSpoolRecord): boolean {
+  return record.status === 'recording' ||
+    record.status === 'finalizing' ||
+    record.status === 'upload_queued' ||
+    record.status === 'uploading' ||
+    (record.status === 'failed' && record.failureReason === 'auth_required')
 }
 
 export async function createSpoolRecording(record: RecordingSpoolRecord): Promise<void> {
@@ -169,7 +166,7 @@ export async function listSpoolRecordings(): Promise<RecordingSpoolRecord[]> {
 export async function listUploadableSpoolRecordings(): Promise<RecordingSpoolRecord[]> {
   const records = await listSpoolRecordings()
   return records
-    .filter(record => isUploadableStatus(record.status))
+    .filter(record => isUploadableRecord(record))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 }
 
@@ -265,7 +262,7 @@ export async function getSpoolUsage(): Promise<{ recordings: number; bytes: numb
     sumChunkSizes()
   ])
   return {
-    recordings: records.filter(record => countsAgainstSpoolCapacity(record.status)).length,
+    recordings: records.filter(record => countsAgainstSpoolCapacity(record)).length,
     bytes
   }
 }

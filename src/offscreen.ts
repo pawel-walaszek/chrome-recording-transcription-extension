@@ -43,10 +43,8 @@ const MAX_UPLOAD_QUEUE_BYTES = 2 * 1024 * 1024 * 1024
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
 const INTERRUPTED_RECORDING_MESSAGE = 'Recording was interrupted before it could be finalized.'
 const ORPHANED_PENDING_UPLOAD_STATUSES: RecordingUploadStatus[] = [
-  'queued',
-  'uploading',
-  'retrying',
-  'auth_required'
+  'upload_queued',
+  'uploading'
 ]
 
 window.addEventListener('error', (e) => {
@@ -503,6 +501,7 @@ function buildSpoolRecording(
     backendRecordingId: null,
     assets: microphoneEnabled ? ['video_audio', 'microphone'] : ['video_audio'],
     error: null,
+    failureReason: null,
     createdAt: timestamp,
     updatedAt: timestamp,
     schemaVersion: SPOOL_SCHEMA_VERSION,
@@ -539,8 +538,9 @@ async function markSpoolRecordFailedUnrecoverable(
 ): Promise<RecordingSpoolRecord> {
   const failedRecord: RecordingSpoolRecord = {
     ...record,
-    status: 'failed_unrecoverable',
+    status: 'failed',
     error: message,
+    failureReason: 'unrecoverable',
     nextRetryAt: null,
     updatedAt: new Date().toISOString()
   }
@@ -564,8 +564,9 @@ async function markCurrentSpoolLocalError(message: string): Promise<void> {
   const localId = currentSpoolRecord.localId
   currentSpoolRecord = {
     ...currentSpoolRecord,
-    status: 'local_error',
+    status: 'failed',
     error: message,
+    failureReason: 'local_error',
     nextRetryAt: null,
     updatedAt: new Date().toISOString()
   }
@@ -640,7 +641,8 @@ async function updateQueueEntry(
     'nextRetryAt' |
     'backendRecordingId' |
     'assets' |
-    'error'
+    'error' |
+    'failureReason'
   >> = {}
 ): Promise<void> {
   const nextEntry: UploadQueueEntry = {
@@ -669,11 +671,12 @@ async function rejectQueueEntryForMemoryLimit(entry: UploadQueueEntry): Promise<
   const now = new Date().toISOString()
   const currentBytes = getUploadQueueBytes()
   const entryBytes = getQueueEntryBytes(entry)
-  const message = 'Upload queue is full. Try again after pending uploads finish.'
+  const message = 'Upload queue is full. Try again after active uploads finish.'
   const failedEntry: UploadQueueEntry = {
     ...entry,
     status: 'failed',
     error: message,
+    failureReason: 'local_error',
     nextRetryAt: null,
     updatedAt: now
   }
@@ -696,8 +699,8 @@ async function rejectQueueEntryForMemoryLimit(entry: UploadQueueEntry): Promise<
 
 function getNextReadyUploadQueueEntry(now: number): UploadQueueEntry | null {
   return uploadQueue.find((entry) => {
-    if (entry.status === 'queued' || entry.status === 'uploading') return true
-    if (entry.status !== 'retrying') return false
+    if (entry.status === 'uploading') return true
+    if (entry.status !== 'upload_queued') return false
     return entry.nextRetryAt == null || entry.nextRetryAt <= now
   }) ?? null
 }
@@ -706,7 +709,7 @@ function getNextUploadRetryDelayMs(now: number): number | null {
   let nextRetryDelayMs: number | null = null
 
   for (const entry of uploadQueue) {
-    if (entry.status !== 'retrying' || entry.nextRetryAt == null || entry.nextRetryAt <= now) continue
+    if (entry.status !== 'upload_queued' || entry.nextRetryAt == null || entry.nextRetryAt <= now) continue
     const delayMs = entry.nextRetryAt - now
     if (nextRetryDelayMs == null || delayMs < nextRetryDelayMs) {
       nextRetryDelayMs = delayMs
@@ -728,7 +731,7 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
     try {
       const extensionToken = await requestMeet2NoteExtensionToken()
       const result = await uploadRecordingOnce(uploadInputFromQueueEntry(entry), extensionToken)
-      await updateQueueEntry(entry, 'uploaded', {
+      await updateQueueEntry(entry, 'processing_queued', {
         backendRecordingId: result.recordingId,
         assets: result.assets,
         nextRetryAt: null,
@@ -745,8 +748,9 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
           type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
           message
         }).catch(() => {})
-        await updateQueueEntry(entry, 'auth_required', {
+        await updateQueueEntry(entry, 'failed', {
           error: message,
+          failureReason: 'auth_required',
           nextRetryAt: null
         })
         log('Upload requires Meet2Note connection', { localId: entry.localId, attempt })
@@ -761,8 +765,9 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
       })
       const nextRetryAt = Date.now() + UPLOAD_RETRY_INTERVAL_MS
       log('Upload failed; retrying in 15 seconds', { localId: entry.localId, error: e })
-      await updateQueueEntry(entry, 'retrying', {
+      await updateQueueEntry(entry, 'upload_queued', {
         error: e instanceof Error ? e.message : String(e),
+        failureReason: 'upload_error',
         nextRetryAt
       })
       await sleep(UPLOAD_RETRY_INTERVAL_MS)
@@ -802,8 +807,9 @@ async function runUploadQueueWorker(): Promise<void> {
         })
 
         try {
-          await updateQueueEntry(nextEntry, 'queued', {
+          await updateQueueEntry(nextEntry, 'upload_queued', {
             error: errorMessage,
+            failureReason: 'upload_error',
             nextRetryAt: null
           })
         } catch (recoveryError) {
@@ -813,8 +819,9 @@ async function runUploadQueueWorker(): Promise<void> {
             status: nextEntry.status
           })
           Object.assign(nextEntry, {
-            status: 'queued' as const,
+            status: 'upload_queued' as const,
             error: errorMessage,
+            failureReason: 'upload_error' as const,
             nextRetryAt: null,
             updatedAt: new Date().toISOString()
           })
@@ -855,7 +862,7 @@ async function assertSpoolCapacityBeforeRecording(): Promise<void> {
     throw new Error('Local recording storage is unavailable. Refresh the extension or free browser storage before starting another recording.')
   }
   if (usage.recordings >= MAX_UPLOAD_QUEUE_ENTRIES || usage.bytes >= MAX_UPLOAD_QUEUE_BYTES) {
-    throw new Error('Local recording storage is full. Wait for pending uploads to finish before starting another recording.')
+    throw new Error('Local recording storage is full. Wait for active uploads to finish before starting another recording.')
   }
 
   try {
@@ -893,8 +900,9 @@ async function markOrphanedPendingHistoryItems(uploadableSpoolLocalIds: Set<stri
     ) {
       await persistHistoryItem({
         ...item,
-        status: 'failed_unrecoverable',
+        status: 'failed',
         error: 'Recording data is missing from the local spool. Start a new recording to retry.',
+        failureReason: 'unrecoverable',
         nextRetryAt: null,
         updatedAt: new Date().toISOString()
       })
@@ -922,18 +930,22 @@ async function restoreUploadQueueFromSpoolOnce(): Promise<void> {
 
   for (const record of records) {
     if (uploadQueue.some(entry => entry.localId === record.localId)) continue
+    const authFailure = record.status === 'failed' && record.failureReason === 'auth_required'
     const restoredStatus = record.status === 'uploading' ||
-      (record.status === 'auth_required' && canResumeAuthRequired)
-      ? 'queued'
+      (authFailure && canResumeAuthRequired)
+      ? 'upload_queued'
       : record.status
     const entry = await buildUploadQueueEntryFromSpool({
       ...record,
       status: restoredStatus,
       error: record.status === 'uploading'
         ? 'Upload was interrupted and will be retried.'
-        : record.status === 'auth_required' && canResumeAuthRequired
+        : authFailure && canResumeAuthRequired
           ? null
         : record.error,
+      failureReason: record.status === 'uploading' || (authFailure && canResumeAuthRequired)
+        ? null
+        : record.failureReason,
       updatedAt: new Date().toISOString()
     })
     if (!entry) {
@@ -958,11 +970,12 @@ async function restoreUploadQueueFromSpoolOnce(): Promise<void> {
 async function requeueAuthRequiredUploads(): Promise<void> {
   let changed = false
   for (const entry of uploadQueue) {
-    if (entry.status !== 'auth_required') continue
+    if (entry.status !== 'failed' || entry.failureReason !== 'auth_required') continue
     changed = true
-    await updateQueueEntry(entry, 'queued', {
+    await updateQueueEntry(entry, 'upload_queued', {
       nextRetryAt: null,
-      error: null
+      error: null,
+      failureReason: null
     })
   }
   if (changed) {
@@ -1052,8 +1065,9 @@ function markCurrentSpoolFailedUnrecoverable(message: string): void {
   if (!currentSpoolRecord) return
   const nextRecord: RecordingSpoolRecord = {
     ...currentSpoolRecord,
-    status: 'failed_unrecoverable',
+    status: 'failed',
     error: message,
+    failureReason: 'unrecoverable',
     nextRetryAt: null,
     updatedAt: new Date().toISOString()
   }
@@ -1278,7 +1292,7 @@ async function prepareAndRecord(
         const stoppedAt = new Date().toISOString()
         currentSpoolRecord = {
           ...currentSpoolRecord,
-          status: 'queued',
+          status: 'upload_queued',
           stoppedAt,
           durationMs: Math.max(1, Date.now() - (currentRecordingStartedAtMs || Date.now())),
           videoBytes: currentVideoBytes,

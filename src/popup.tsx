@@ -128,29 +128,28 @@ function formatTime(value: string): string {
 function getHistoryStatusText(item: RecordingHistoryItem, now: number): string {
   if (item.status === 'recording') return 'Recording - saved locally'
   if (item.status === 'finalizing') return 'Saving local recording'
-  if (item.status === 'queued') return 'Waiting to upload'
-  if (item.status === 'uploading') return item.attempt > 1 ? `Uploading, attempt ${item.attempt}` : 'Uploading...'
-  if (item.status === 'retrying') {
-    const waitMs = typeof item.nextRetryAt === 'number'
-      ? Math.max(0, item.nextRetryAt - now)
-      : 0
-    return `Retrying in ${Math.ceil(waitMs / 1000)}s`
+  if (item.status === 'upload_queued') {
+    if (item.nextRetryAt && item.nextRetryAt > now) {
+      return `Retrying in ${Math.ceil((item.nextRetryAt - now) / 1000)}s`
+    }
+    return 'Waiting to upload'
   }
-  if (item.status === 'pending') return 'Waiting for processing'
+  if (item.status === 'uploading') return item.attempt > 1 ? `Uploading, attempt ${item.attempt}` : 'Uploading...'
+  if (item.status === 'processing_queued') return 'Waiting for processing'
   if (item.status === 'processing') return 'Processing in Meet2Note'
   if (item.status === 'ready') return 'Ready in Meet2Note'
-  if (item.status === 'uploaded') return item.backendRecordingId ? `Uploaded: ${item.backendRecordingId}` : 'Uploaded'
-  if (item.status === 'auth_required') return 'Reconnect to upload'
-  if (item.status === 'local_error') return item.error || 'Local save failed'
-  if (item.status === 'failed_unrecoverable') return item.error || 'Recording could not be recovered'
+  if (item.status === 'canceled') return 'Canceled'
+  if (item.status === 'expired') return 'Expired in Meet2Note'
+  if (item.failureReason === 'auth_required') return 'Reconnect to upload'
+  if (item.failureReason === 'local_error') return item.error || 'Local save failed'
+  if (item.failureReason === 'unrecoverable') return item.error || 'Recording could not be recovered'
   return item.error || 'Upload failed'
 }
 
 function getHistoryTagColor(status: RecordingUploadStatus): string {
-  if (status === 'uploaded' || status === 'ready') return 'success'
-  if (status === 'failed' || status === 'auth_required' || status === 'local_error' || status === 'failed_unrecoverable') return 'error'
-  if (status === 'retrying') return 'warning'
-  if (status === 'recording' || status === 'finalizing' || status === 'uploading' || status === 'processing' || status === 'pending') return 'processing'
+  if (status === 'ready') return 'success'
+  if (status === 'failed' || status === 'expired' || status === 'canceled') return 'error'
+  if (status === 'recording' || status === 'finalizing' || status === 'uploading' || status === 'upload_queued' || status === 'processing' || status === 'processing_queued') return 'processing'
   return 'default'
 }
 
@@ -180,7 +179,7 @@ function App(): React.ReactElement {
   const inFlightRef = useRef(false)
 
   useEffect(() => {
-    if (!recordingState.recording && !recentRecordings.some(item => item.status === 'retrying')) return undefined
+    if (!recordingState.recording && !recentRecordings.some(item => item.status === 'upload_queued' && item.nextRetryAt && item.nextRetryAt > Date.now())) return undefined
 
     setNow(Date.now())
     const timerId = window.setInterval(() => setNow(Date.now()), 1000)
@@ -310,7 +309,7 @@ function App(): React.ReactElement {
     inFlight ||
     recordingState.starting ||
     recordingState.stopping
-  const authRequiredUpload = recentRecordings.find(item => item.status === 'auth_required')
+  const authRequiredUpload = recentRecordings.find(item => item.status === 'failed' && item.failureReason === 'auth_required')
   const connectionErrorMessage = meet2NoteConnection.authError ||
     authRequiredUpload?.error ||
     null
@@ -588,7 +587,7 @@ function App(): React.ReactElement {
               {recordingButtonText}
             </Button>
             <Space size={6} align="start">
-              {recentRecordings.some(item => item.status === 'uploaded') ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
+              {recentRecordings.some(item => item.status === 'ready') ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
               <Text style={{ fontSize: 12, lineHeight: 1.25 }}>{recordingText}</Text>
             </Space>
           </>
@@ -632,7 +631,7 @@ function App(): React.ReactElement {
                     {formatTime(item.startedAt)} · {formatDuration(item.durationMs)}
                   </Text>
                   <Text
-                    type={item.status === 'failed' || item.status === 'auth_required' ? 'danger' : 'secondary'}
+                    type={item.status === 'failed' ? 'danger' : 'secondary'}
                     style={{ fontSize: 11, lineHeight: 1.2 }}
                   >
                     {getHistoryStatusText(item, now)}

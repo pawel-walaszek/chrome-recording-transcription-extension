@@ -135,6 +135,7 @@ function backendRecordingToHistoryItem(recording: BackendRecordingListItem): Rec
     backendRecordingId: recording.id,
     assets: [],
     error: recording.status === 'failed' ? 'Processing failed in Meet2Note.' : null,
+    failureReason: recording.status === 'failed' ? 'upload_error' : null,
     createdAt: recording.createdAt,
     updatedAt: recording.updatedAt || recording.createdAt
   }
@@ -227,10 +228,9 @@ function broadcastUploadQueueState(items = recentRecordings): void {
 
 function hasPendingLocalUpload(items = recentRecordings): boolean {
   return items.some(item =>
-    item.status === 'queued' ||
+    item.status === 'upload_queued' ||
     item.status === 'uploading' ||
-    item.status === 'retrying' ||
-    item.status === 'auth_required' ||
+    (item.status === 'failed' && item.failureReason === 'auth_required') ||
     item.status === 'recording' ||
     item.status === 'finalizing'
   )
@@ -256,7 +256,7 @@ function wakeOffscreenForPendingUploads(): void {
       return undefined
     })
     .catch((e) => {
-      bglog('Failed to wake offscreen for pending uploads', e)
+      bglog('Failed to wake offscreen for active uploads', e)
       captureException(e, { operation: 'wakeOffscreenForPendingUploads' })
     })
 }
@@ -715,7 +715,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         broadcastUploadQueueState()
         sendResponse({ ok: true, items: recentRecordings })
 
-        if (item.status === 'uploaded' && item.backendRecordingId) {
+        if (item.status === 'processing_queued' && item.backendRecordingId) {
           scheduleBackendRecordingsRefresh()
         }
       } catch (e: any) {
@@ -763,7 +763,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') return
   const tokenChange = changes[MEET2NOTE_EXTENSION_TOKEN_KEY]
-  if (!tokenChange || typeof tokenChange.newValue !== 'string' || !tokenChange.newValue.trim() || !offscreenPort) return
+  if (!tokenChange || typeof tokenChange.newValue !== 'string' || !tokenChange.newValue.trim()) return
+  if (!offscreenPort) {
+    wakeOffscreenForPendingUploads()
+    return
+  }
 
   postToOffscreen({ type: 'OFFSCREEN_REQUEUE_AUTH_REQUIRED_UPLOADS' }).catch((e) => {
     bglog('OFFSCREEN_REQUEUE_AUTH_REQUIRED_UPLOADS failed', e)

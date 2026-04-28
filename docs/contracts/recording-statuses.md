@@ -49,8 +49,9 @@ Przepływy błędów:
 
 1. Nowy kod rozszerzenia nie powinien emitować ani zapisywać `pending`.
 2. Lokalne legacy dane ze statusem `pending` powinny być mapowane do najbliższego aktualnego statusu, zamiast utrzymywać `pending` w UI.
-3. `queued` w kontekście lokalnej kolejki uploadu jest nazwą historyczną z implementacji #10 i powinno zostać zmapowane do `upload_queued`.
+3. `queued` i `retrying` w kontekście lokalnej kolejki uploadu są nazwami historycznymi i powinny zostać zmapowane do `upload_queued`.
 4. Po zakończonym uploadzie UI rozszerzenia musi umieć przyjąć z backendu `processing_queued`, a potem `processing`, `ready` albo `failed`.
+5. Historyczne lokalne statusy błędów, np. `auth_required`, `local_error` i `failed_unrecoverable`, powinny zostać zmapowane do `failed` z dodatkową metadaną przyczyny błędu.
 
 ## Status nagrania a status artefaktu
 

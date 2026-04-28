@@ -3,17 +3,20 @@ import type { UploadAsset } from './uploadClient'
 export type RecordingUploadStatus =
   | 'recording'
   | 'finalizing'
-  | 'queued'
+  | 'upload_queued'
   | 'uploading'
-  | 'retrying'
-  | 'uploaded'
-  | 'pending'
+  | 'processing_queued'
   | 'processing'
   | 'ready'
+  | 'failed'
+  | 'canceled'
+  | 'expired'
+
+export type RecordingFailureReason =
   | 'auth_required'
   | 'local_error'
-  | 'failed_unrecoverable'
-  | 'failed'
+  | 'unrecoverable'
+  | 'upload_error'
 
 export type RecordingUploadAsset = UploadAsset
 
@@ -34,6 +37,7 @@ export interface RecordingHistoryItem {
   backendRecordingId: string | null
   assets: RecordingUploadAsset[]
   error: string | null
+  failureReason: RecordingFailureReason | null
   createdAt: string
   updatedAt: string
 }
@@ -49,20 +53,17 @@ let recordingHistoryWriteQueue: Promise<unknown> = Promise.resolve()
 const NON_TERMINAL_STATUSES = new Set<RecordingUploadStatus>([
   'recording',
   'finalizing',
-  'queued',
-  'uploading',
-  'retrying',
-  'auth_required'
+  'upload_queued',
+  'uploading'
 ])
 
 export function isTerminalRecordingStatus(status: RecordingUploadStatus): boolean {
-  return status === 'uploaded' ||
-    status === 'pending' ||
+  return status === 'processing_queued' ||
     status === 'processing' ||
     status === 'ready' ||
-    status === 'local_error' ||
-    status === 'failed_unrecoverable' ||
-    status === 'failed'
+    status === 'failed' ||
+    status === 'canceled' ||
+    status === 'expired'
 }
 
 export function generateRecordingLocalId(): string {
@@ -92,20 +93,32 @@ function storageSet(items: Record<string, unknown>): Promise<void> {
   })
 }
 
-function isRecordingUploadStatus(value: unknown): value is RecordingUploadStatus {
-  return value === 'queued' ||
+function normalizeRecordingUploadStatus(value: unknown): RecordingUploadStatus | null {
+  if (value === 'queued' || value === 'retrying') return 'upload_queued'
+  if (value === 'uploaded' || value === 'pending') return 'processing_queued'
+  if (value === 'auth_required' || value === 'local_error' || value === 'failed_unrecoverable') return 'failed'
+  if (value === 'upload_queued' ||
     value === 'uploading' ||
-    value === 'retrying' ||
     value === 'recording' ||
     value === 'finalizing' ||
-    value === 'uploaded' ||
-    value === 'pending' ||
+    value === 'processing_queued' ||
     value === 'processing' ||
     value === 'ready' ||
-    value === 'auth_required' ||
+    value === 'failed' ||
+    value === 'canceled' ||
+    value === 'expired') return value
+  return null
+}
+
+function normalizeFailureReason(status: unknown, value: unknown): RecordingFailureReason | null {
+  if (value === 'auth_required' ||
     value === 'local_error' ||
-    value === 'failed_unrecoverable' ||
-    value === 'failed'
+    value === 'unrecoverable' ||
+    value === 'upload_error') return value
+  if (status === 'auth_required') return 'auth_required'
+  if (status === 'local_error') return 'local_error'
+  if (status === 'failed_unrecoverable') return 'unrecoverable'
+  return null
 }
 
 function sanitizeAssets(value: unknown): RecordingUploadAsset[] {
@@ -137,8 +150,9 @@ function sanitizeHistoryItem(value: unknown): RecordingHistoryItem | null {
   if (!value || typeof value !== 'object') return null
   const record = value as Record<string, unknown>
   const localId = optionalString(record.localId)
-  const status = record.status
-  if (!localId || !isRecordingUploadStatus(status)) return null
+  const rawStatus = record.status
+  const status = normalizeRecordingUploadStatus(rawStatus)
+  if (!localId || !status) return null
 
   const now = new Date().toISOString()
   const title = optionalString(record.title) || 'Browser recording'
@@ -164,6 +178,7 @@ function sanitizeHistoryItem(value: unknown): RecordingHistoryItem | null {
     backendRecordingId: nullableString(record.backendRecordingId),
     assets: sanitizeAssets(record.assets),
     error: nullableString(record.error),
+    failureReason: status === 'failed' ? normalizeFailureReason(rawStatus, record.failureReason) : null,
     createdAt,
     updatedAt
   }
@@ -253,6 +268,7 @@ export async function markIncompleteRecordingsFailed(message: string): Promise<R
         ...item,
         status: 'failed' as const,
         error: message,
+        failureReason: 'unrecoverable' as const,
         nextRetryAt: null,
         updatedAt: now
       }
