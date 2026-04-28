@@ -1,6 +1,6 @@
 // src/offscreen.ts
 
-import { captureException, captureMessage, initDiagnostics } from './diagnostics'
+import { captureException, captureMessage, initDiagnostics } from './offscreenDiagnostics'
 import {
   isMeet2NoteAuthError,
   Meet2NoteAuthError
