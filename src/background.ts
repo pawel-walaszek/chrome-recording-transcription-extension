@@ -9,7 +9,6 @@ import {
 } from './extensionAuth'
 import { clearMicPreferences, getMicPreferences, type MicPreferences } from './micPreferences'
 import {
-  markIncompleteRecordingsFailed,
   normalizeRecordingHistory,
   POPUP_RECORDING_HISTORY_LIMIT,
   readRecordingHistory,
@@ -34,7 +33,6 @@ const meetTabsInMeeting = new Set<number>()
 let recentRecordings: RecordingHistoryItem[] = []
 let backendRecordingsRefreshPromise: Promise<void> | null = null
 let backendRecordingsLastRefreshedAt = 0
-const RECORDER_CONTEXT_INTERRUPTED_MESSAGE = 'Upload was interrupted by an extension restart or refresh.'
 const BACKEND_RECORDINGS_REFRESH_THROTTLE_MS = 15_000
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -227,6 +225,42 @@ function broadcastUploadQueueState(items = recentRecordings): void {
   }).catch(() => {})
 }
 
+function hasPendingLocalUpload(items = recentRecordings): boolean {
+  return items.some(item =>
+    item.status === 'queued' ||
+    item.status === 'uploading' ||
+    item.status === 'retrying' ||
+    item.status === 'auth_required' ||
+    item.status === 'recording' ||
+    item.status === 'finalizing'
+  )
+}
+
+async function hasPendingLocalUploadInHistory(): Promise<boolean> {
+  try {
+    return hasPendingLocalUpload(await readRecordingHistory())
+  } catch (e) {
+    captureException(e, { operation: 'hasPendingLocalUploadInHistory' })
+    return hasPendingLocalUpload()
+  }
+}
+
+function wakeOffscreenForPendingUploads(): void {
+  void hasPendingLocalUploadInHistory()
+    .then(async (hasPendingUploads) => {
+      if (!hasPendingUploads) return undefined
+      await ensureOffscreen()
+      if (offscreenPort) {
+        return postToOffscreen({ type: 'OFFSCREEN_RESTORE_UPLOAD_QUEUE' }).catch(() => undefined)
+      }
+      return undefined
+    })
+    .catch((e) => {
+      bglog('Failed to wake offscreen for pending uploads', e)
+      captureException(e, { operation: 'wakeOffscreenForPendingUploads' })
+    })
+}
+
 async function getMicPreferencesForOffscreen(): Promise<MicPreferences> {
   try {
     return await getMicPreferences()
@@ -256,8 +290,6 @@ async function hasOffscreenContext(): Promise<boolean> {
 async function ensureOffscreen(): Promise<void> {
   const have = await hasOffscreenContext()
   if (!have) {
-    recentRecordings = (await markIncompleteRecordingsFailed(RECORDER_CONTEXT_INTERRUPTED_MESSAGE)).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
-    broadcastUploadQueueState()
     bglog('Creating offscreen document…')
     await chrome.offscreen.createDocument({
       url: chrome.runtime.getURL('offscreen.html'),
@@ -304,8 +336,6 @@ async function resetOffscreen(): Promise<void> {
     if (await hasOffscreenContext()) {
       await chrome.offscreen.closeDocument()
       await wait(250)
-      recentRecordings = (await markIncompleteRecordingsFailed(RECORDER_CONTEXT_INTERRUPTED_MESSAGE)).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
-      broadcastUploadQueueState()
     }
   } catch (e) {
     bglog('Offscreen reset failed', e)
@@ -373,16 +403,6 @@ chrome.runtime.onConnect.addListener((port) => {
     persistRecordingState(false, null)
     setBadge(false)
 
-    void (async () => {
-      try {
-        if (await hasOffscreenContext()) return
-        recentRecordings = (await markIncompleteRecordingsFailed(RECORDER_CONTEXT_INTERRUPTED_MESSAGE)).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
-        broadcastUploadQueueState()
-      } catch (e) {
-        bglog('Failed to mark incomplete recordings after offscreen disconnect', e)
-        captureException(e, { operation: 'offscreen.onDisconnect.markIncompleteRecordingsFailed' })
-      }
-    })()
   })
 })
 
@@ -636,6 +656,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         await hydrateRecentRecordings()
       } catch {}
       scheduleBackendRecordingsRefresh()
+      wakeOffscreenForPendingUploads()
       sendResponse({
         recording: lastKnownRecording,
         recordingStartedAt,
@@ -701,6 +722,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       try {
         await hydrateRecentRecordings()
         scheduleBackendRecordingsRefresh()
+        wakeOffscreenForPendingUploads()
         sendResponse({ ok: true, items: recentRecordings })
       } catch (e: any) {
         captureException(e, { operation: 'READ_RECORDING_HISTORY' })
@@ -748,14 +770,9 @@ chrome.runtime.onSuspend?.addListener(async () => {
 })
 
 async function initializeRecentRecordings(): Promise<void> {
-  if (!(await hasOffscreenContext())) {
-    recentRecordings = (await markIncompleteRecordingsFailed(RECORDER_CONTEXT_INTERRUPTED_MESSAGE)).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
-    broadcastUploadQueueState()
-    return
-  }
-
   await hydrateRecentRecordings()
   scheduleBackendRecordingsRefresh()
+  wakeOffscreenForPendingUploads()
 }
 
 void initializeRecentRecordings().catch((e) => {

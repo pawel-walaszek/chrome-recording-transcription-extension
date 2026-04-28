@@ -126,6 +126,8 @@ function formatTime(value: string): string {
 }
 
 function getHistoryStatusText(item: RecordingHistoryItem, now: number): string {
+  if (item.status === 'recording') return 'Recording - saved locally'
+  if (item.status === 'finalizing') return 'Saving local recording'
   if (item.status === 'queued') return 'Waiting to upload'
   if (item.status === 'uploading') return item.attempt > 1 ? `Uploading, attempt ${item.attempt}` : 'Uploading...'
   if (item.status === 'retrying') {
@@ -139,14 +141,16 @@ function getHistoryStatusText(item: RecordingHistoryItem, now: number): string {
   if (item.status === 'ready') return 'Ready in Meet2Note'
   if (item.status === 'uploaded') return item.backendRecordingId ? `Uploaded: ${item.backendRecordingId}` : 'Uploaded'
   if (item.status === 'auth_required') return 'Reconnect to upload'
+  if (item.status === 'local_error') return item.error || 'Local save failed'
+  if (item.status === 'failed_unrecoverable') return item.error || 'Recording could not be recovered'
   return item.error || 'Upload failed'
 }
 
 function getHistoryTagColor(status: RecordingUploadStatus): string {
   if (status === 'uploaded' || status === 'ready') return 'success'
-  if (status === 'failed' || status === 'auth_required') return 'error'
+  if (status === 'failed' || status === 'auth_required' || status === 'local_error' || status === 'failed_unrecoverable') return 'error'
   if (status === 'retrying') return 'warning'
-  if (status === 'uploading' || status === 'processing' || status === 'pending') return 'processing'
+  if (status === 'recording' || status === 'finalizing' || status === 'uploading' || status === 'processing' || status === 'pending') return 'processing'
   return 'default'
 }
 

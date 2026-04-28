@@ -23,7 +23,8 @@ Docelowy backend dla uploadu i przetwarzania nagrań będzie rozwijany w powiąz
 | Callback Meet2Note | `connect-callback.html`, `src/connectCallback.ts` | Kończy flow połączenia z backendu, waliduje `state`, wymienia jednorazowy `code` na token i zapisuje go lokalnie. |
 | Watcher Google Meet | `src/meetWatcher.ts`, `manifest.json` | Content script na `meet.google.com`, który wykrywa aktywne spotkanie i opuszczenie spotkania. |
 | Service worker tła | `src/background.ts` | Koordynuje przechwytywanie karty, cykl życia dokumentu offscreen, stan nagrywania/uploadu i znaczniki. |
-| Nagrywarka offscreen | `offscreen.html`, `src/offscreen.ts` | Przechwytuje media z karty, nagrywa osobny asset mikrofonu, finalizuje bloby i wysyła je do backendu. |
+| Nagrywarka offscreen | `offscreen.html`, `src/offscreen.ts` | Przechwytuje media z karty, nagrywa osobny asset mikrofonu, zapisuje chunki do spoolu i wysyła je do backendu. |
+| Lokalny spool nagrań | `src/recordingSpool.ts` | Trwały IndexedDB dla manifestów i chunków nagrań do czasu potwierdzonego uploadu. |
 | Klient uploadu | `src/uploadClient.ts` | Wykonuje kontrakt uploadu backendu: `/init`, upload assetów, `/complete`. |
 | Klient nagrań | `src/recordingsClient.ts` | Pobiera listę nagrań z backendu przez `GET /api/recordings` z `extensionToken`. |
 | Historia nagrań | `src/recordingHistory.ts` | Definiuje model lokalnej historii uploadów i helpery `chrome.storage.local`. |
@@ -47,7 +48,7 @@ Ten opis dokumentuje aktualne ustalenia integracyjne między wtyczką i backende
 6. Jeśli mikrofon jest dostępny, rozszerzenie wysyła osobny asset `microphone` przez `PUT /api/upload/{recordingId}/microphone`.
 7. Każdy upload assetu używa nagłówków `Authorization` oraz `X-Upload-Token`.
 8. Rozszerzenie kończy upload przez `POST /api/upload/{recordingId}/complete`.
-9. Zakończone nagrania trafiają do sekwencyjnej kolejki uploadu w offscreen; jeden aktywny upload nie blokuje startu kolejnego nagrania.
+9. Chunks nagrania trafiają do trwałego spoolu IndexedDB już podczas nagrywania, a zakończone nagrania są uploadowane sekwencyjnie.
 10. Jeśli upload się nie powiedzie, offscreen ponawia pełny upload konkretnej pozycji co 15 sekund, bez lokalnego zapisu pliku.
 11. Jeśli backend zwróci `401` albo `403`, zwykły retry tej pozycji jest przerywany, token jest czyszczony i popup wymaga ponownego połączenia z Meet2Note.
 12. Popup scala lokalną historię kolejki z listą nagrań z backendu, jeśli konto jest połączone z Meet2Note.
@@ -55,7 +56,7 @@ Ten opis dokumentuje aktualne ustalenia integracyjne między wtyczką i backende
 ## Granice uruchomieniowe
 
 1. Pliki wynikowe trafiają bezpośrednio do `https://meet2note.com`, bez automatycznego pobierania lokalnego `.webm`.
-2. Gotowe bloby są trzymane tylko w pamięci offscreen na czas kolejki, uploadu i retry; trwała historia w `chrome.storage.local` zawiera tylko metadane.
+2. Chunks nagrań są trzymane w IndexedDB do czasu potwierdzonego uploadu; trwała historia w `chrome.storage.local` zawiera tylko metadane.
 3. Wybór mikrofonu i token Meet2Note są zapisywane lokalnie w `chrome.storage.local`.
 4. Tokenów, kodów wymiany, nagłówka `Authorization`, `X-Upload-Token` ani blobów nagrań nie wolno logować do konsoli ani Sentry.
 5. Content script na Google Meet nie czyta ani nie wysyła treści spotkania; wykrywa tylko stan obecności w spotkaniu.
