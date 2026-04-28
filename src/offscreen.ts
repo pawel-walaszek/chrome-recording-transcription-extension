@@ -81,15 +81,21 @@ function wakeUploadQueueWorker(): void {
 
 function sleepUntilUploadQueueWakeOrTimeout(ms: number): Promise<void> {
   let wake: (() => void) | null = null
-  const wakePromise = new Promise<void>((resolve) => {
-    wake = resolve
-    uploadQueueWake = resolve
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+  const wakePromise = new Promise<'wake'>((resolve) => {
+    wake = () => resolve('wake')
+    uploadQueueWake = wake
+  })
+  const timeoutPromise = new Promise<'timeout'>((resolve) => {
+    timeoutId = setTimeout(() => resolve('timeout'), ms)
   })
 
   return Promise.race([
-    sleep(ms),
+    timeoutPromise,
     wakePromise
-  ]).then(() => {
+  ]).then((result) => {
+    if (result === 'wake' && timeoutId) clearTimeout(timeoutId)
     if (wake && uploadQueueWake === wake) uploadQueueWake = null
   })
 }
