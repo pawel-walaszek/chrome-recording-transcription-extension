@@ -37,6 +37,7 @@ const WANT_MIC_ASSET = true
 const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 const UPLOAD_RETRY_INTERVAL_MS = 15_000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
+const MICROPHONE_STOP_TIMEOUT_MS = 2_000
 const MAX_UPLOAD_QUEUE_ENTRIES = 3
 const MAX_UPLOAD_QUEUE_BYTES = 2 * 1024 * 1024 * 1024
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
@@ -986,7 +987,9 @@ function stopMicrophoneRecorderAfterPrimaryError(): void {
 }
 
 function stopActiveRecorders(): void {
-  if (microphoneRecorder && microphoneRecorder.state !== 'inactive') {
+  if (!microphoneRecorder || microphoneRecorder.state === 'inactive') {
+    resolveMicrophoneStop(null)
+  } else {
     try { microphoneRecorder.stop() } catch (e) { log('microphone recorder stop failed', e); resolveMicrophoneStop(null) }
   }
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -997,6 +1000,30 @@ function stopActiveRecorders(): void {
 function resolveMicrophoneStop(blob: Blob | null): void {
   const resolver: ((blob: Blob | null) => void) | null = resolveMicrophoneStopped
   if (typeof resolver === 'function') resolver(blob)
+}
+
+async function waitForMicrophoneStop(): Promise<void> {
+  const stopped = microphoneStoppedPromise
+  if (!stopped) return
+
+  let timeoutId: number | null = null
+  const timeout = new Promise<'timeout'>((resolve) => {
+    timeoutId = window.setTimeout(() => resolve('timeout'), MICROPHONE_STOP_TIMEOUT_MS)
+  })
+
+  const result = await Promise.race([
+    stopped.then(() => 'stopped' as const).catch(() => 'stopped' as const),
+    timeout
+  ])
+
+  if (timeoutId !== null) window.clearTimeout(timeoutId)
+  if (result === 'timeout') {
+    log(`microphone recorder stop timed out after ${MICROPHONE_STOP_TIMEOUT_MS}ms; finalizing without microphone tail`)
+    captureMessage('microphone recorder stop timed out; finalizing recording without waiting longer', 'warning', {
+      operation: 'waitForMicrophoneStop'
+    })
+    resolveMicrophoneStop(null)
+  }
 }
 
 function clearStopFinalizeTimeout(): void {
@@ -1233,20 +1260,20 @@ async function prepareAndRecord(
           log('Skipping upload for abandoned recording', recordingId)
           return
         }
-        if (microphoneStoppedPromise) await microphoneStoppedPromise.catch(() => null)
+        if (!currentSpoolRecord) throw new Error('Missing local recording spool record.')
+        if (currentSpoolError) throw currentSpoolError
+
+        currentSpoolRecord = {
+          ...currentSpoolRecord,
+          status: 'finalizing',
+          updatedAt: new Date().toISOString()
+        }
+        await updateSpoolRecording(currentSpoolRecord)
+        await persistHistoryItem(currentSpoolRecord)
+
+        await waitForMicrophoneStop()
         await currentSpoolWriteQueue
         if (currentSpoolError) throw currentSpoolError
-        if (!currentSpoolRecord) throw new Error('Missing local recording spool record.')
-
-        if (currentSpoolRecord) {
-          currentSpoolRecord = {
-            ...currentSpoolRecord,
-            status: 'finalizing',
-            updatedAt: new Date().toISOString()
-          }
-          await updateSpoolRecording(currentSpoolRecord)
-          await persistHistoryItem(currentSpoolRecord)
-        }
 
         const stoppedAt = new Date().toISOString()
         currentSpoolRecord = {

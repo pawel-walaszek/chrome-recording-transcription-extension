@@ -488,6 +488,10 @@ async function stopRecording(reason: string): Promise<any> {
     throw new Error(response.error || 'OFFSCREEN_STOP failed')
   }
 
+  if (response?.stopping || response?.alreadyStopping) {
+    return response
+  }
+
   clearRecordingAfterConfirmedStop(stoppedTabId)
   return response
 }
@@ -622,6 +626,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
         sendResponse({
           ok: true,
+          stopping: !!response?.stopping,
+          alreadyStopping: !!response?.alreadyStopping,
+          alreadyStopped: !!response?.alreadyStopped,
           warning: typeof response?.warning === 'string' ? response.warning : undefined
         })
       } catch (e: any) {
