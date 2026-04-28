@@ -1011,7 +1011,10 @@ async function startRecordingFromStreamId(
   micPreferences: MicPreferences,
   recordingContext: RecordingContext
 ): Promise<RecordingStartInfo> {
-  if (capturing || stopRequested || mediaRecorder) {
+  if (capturing) {
+    throw new Error('Already recording.')
+  }
+  if (stopRequested || mediaRecorder) {
     throw new Error('Recording is still stopping. Try again in a moment.')
   }
   cleanupRecordingResources()
