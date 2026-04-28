@@ -1,7 +1,7 @@
 // src/popup.tsx
 
 import {
-  CheckCircleOutlined,
+  CheckOutlined,
   CloudUploadOutlined,
   LinkOutlined,
   LoadingOutlined,
@@ -9,7 +9,7 @@ import {
   SettingOutlined,
   VideoCameraOutlined
 } from '@ant-design/icons'
-import { Alert, Button, ConfigProvider, Divider, Flex, Space, Tag, Typography, theme } from 'antd'
+import { Alert, Button, ConfigProvider, Divider, Flex, Tag, Typography, theme } from 'antd'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { captureException, initDiagnostics } from './diagnostics'
@@ -44,6 +44,7 @@ interface RecordingStatus {
 const { Text } = Typography
 const START_RECORDING_POPUP_DELAY_MS = 3_000
 const MEET2NOTE_BRAND_ICON_URL = chrome.runtime.getURL('icons/meet2note-favicon.svg')
+const POPUP_WIDTH = 252
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
@@ -100,16 +101,6 @@ async function readMicButtonLabel(): Promise<{ label: string; title: string }> {
   }
 }
 
-function getRecordingText(recordingState: RecordingStatus, now: number): string {
-  if (recordingState.starting) return 'Starting recording...'
-  if (recordingState.stopping) return 'Stopping recording...'
-  if (recordingState.recording) {
-    const startedAt = recordingState.recordingStartedAt ?? now
-    return `Recording: ${formatDuration(now - startedAt)}`
-  }
-  return 'Not recording'
-}
-
 function getRecordingButtonText(recordingState: RecordingStatus): string {
   if (recordingState.starting) return 'Starting...'
   if (recordingState.stopping) return 'Stopping...'
@@ -155,6 +146,45 @@ function getHistoryTagColor(status: RecordingUploadStatus): string {
   return 'default'
 }
 
+function PopupHeader({
+  actionTitle,
+  icon,
+  onAction
+}: {
+  actionTitle: string
+  icon: React.ReactNode
+  onAction: () => void
+}): React.ReactElement {
+  return (
+    <Flex align="center" justify="space-between" gap={10}>
+      <Flex align="center" gap={10}>
+        <img
+          alt="Meet2Note"
+          src={MEET2NOTE_BRAND_ICON_URL}
+          style={{ width: 28, height: 28, display: 'block', borderRadius: 8 }}
+        />
+        <Flex vertical gap={0}>
+          <Text strong style={{ fontSize: 14, lineHeight: 1.1 }}>
+            Meet2Note
+          </Text>
+          <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+            Just meet. We note.
+          </Text>
+        </Flex>
+      </Flex>
+      <Button
+        aria-label={actionTitle}
+        icon={icon}
+        onClick={onAction}
+        size="small"
+        title={actionTitle}
+        type="text"
+        style={{ width: 28, height: 28 }}
+      />
+    </Flex>
+  )
+}
+
 function App(): React.ReactElement {
   const [recordingState, setRecordingState] = useState<RecordingStatus>({
     recording: false,
@@ -178,6 +208,7 @@ function App(): React.ReactElement {
   const [inFlight, setInFlight] = useState(false)
   const [connectingMeet2Note, setConnectingMeet2Note] = useState(false)
   const [disconnectingMeet2Note, setDisconnectingMeet2Note] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const inFlightRef = useRef(false)
 
   useEffect(() => {
@@ -300,10 +331,6 @@ function App(): React.ReactElement {
     }
   }, [refreshMic, refreshMeet2NoteConnection])
 
-  const recordingText = useMemo(
-    () => getRecordingText(recordingState, now),
-    [recordingState, now]
-  )
   const visibleRecentRecordings = useMemo(
     () => sanitizeRecordingHistory(recentRecordings, now),
     [recentRecordings, now]
@@ -511,68 +538,95 @@ function App(): React.ReactElement {
         }
       }}
     >
-      <Flex vertical gap={8} style={{ width: 232, padding: 10 }}>
-        <Flex align="center" gap={10}>
-          <img
-            alt="Meet2Note"
-            src={MEET2NOTE_BRAND_ICON_URL}
-            style={{ width: 28, height: 28, display: 'block', borderRadius: 8 }}
-          />
-          <Flex vertical gap={0}>
-            <Text strong style={{ fontSize: 14, lineHeight: 1.1 }}>
-              Meet2Note
-            </Text>
-            <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
-              Just meet. We note.
-            </Text>
-          </Flex>
-        </Flex>
+      <Flex vertical gap={8} style={{ width: POPUP_WIDTH, padding: 10 }}>
+        <PopupHeader
+          actionTitle={settingsOpen ? 'Save and close settings' : 'Settings'}
+          icon={settingsOpen ? <CheckOutlined /> : <SettingOutlined />}
+          onAction={() => setSettingsOpen(open => !open)}
+        />
         <Divider style={{ margin: '2px 0 4px' }} />
-        <Button
-          block
-          icon={<SettingOutlined />}
-          onClick={openSettings}
-          title={micButton.title}
-        >
-          {micButton.label}
-        </Button>
-        <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.25 }}>
-          {micStatus || 'Mic: Default microphone'}
-        </Text>
-        <Divider style={{ margin: '4px 0' }} />
-        {meet2NoteConnection.connected ? (
-          <Flex vertical gap={6}>
-            <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.25 }}>
-              Connected: {meet2NoteConnection.user?.email || meet2NoteConnection.user?.displayName || 'Meet2Note'}
-            </Text>
-            <Button
-              block
-              danger
-              disabled={connectionActionDisabled}
-              icon={<LogoutOutlined />}
-              loading={disconnectingMeet2Note}
-              onClick={disconnectMeet2NoteAccount}
-              size="small"
-            >
-              Disconnect
-            </Button>
-          </Flex>
-        ) : (
+        {settingsOpen ? (
           <>
             <Button
               block
-              disabled={disconnectingMeet2Note}
-              icon={<LinkOutlined />}
-              loading={connectingMeet2Note}
-              onClick={connectMeet2Note}
-              type="primary"
+              icon={<SettingOutlined />}
+              onClick={openSettings}
+              title={micButton.title}
             >
-              Connect to Meet2Note
+              {micButton.label}
             </Button>
-            <Text type={meet2NoteConnection.authError ? 'danger' : 'secondary'} style={{ fontSize: 12, lineHeight: 1.25 }}>
-              {meet2NoteConnection.authError ? 'Reconnect to Meet2Note' : 'Not connected'}
+            <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.25 }}>
+              {micStatus || 'Mic: Default microphone'}
             </Text>
-            {connectionErrorMessage ? (
+            <Divider style={{ margin: '4px 0' }} />
+            {meet2NoteConnection.connected ? (
+              <Flex vertical gap={6}>
+                <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.25 }}>
+                  Connected: {meet2NoteConnection.user?.email || meet2NoteConnection.user?.displayName || 'Meet2Note'}
+                </Text>
+                <Button
+                  block
+                  danger
+                  disabled={connectionActionDisabled}
+                  icon={<LogoutOutlined />}
+                  loading={disconnectingMeet2Note}
+                  onClick={disconnectMeet2NoteAccount}
+                  size="small"
+                >
+                  Disconnect
+                </Button>
+              </Flex>
+            ) : (
+              <Flex vertical gap={6}>
+                <Button
+                  block
+                  disabled={disconnectingMeet2Note}
+                  icon={<LinkOutlined />}
+                  loading={connectingMeet2Note}
+                  onClick={connectMeet2Note}
+                  type="primary"
+                >
+                  Connect to Meet2Note
+                </Button>
+                <Text type={meet2NoteConnection.authError ? 'danger' : 'secondary'} style={{ fontSize: 12, lineHeight: 1.25 }}>
+                  {meet2NoteConnection.authError ? 'Reconnect to Meet2Note' : 'Not connected'}
+                </Text>
+                {connectionErrorMessage ? (
+                  <Alert
+                    type="error"
+                    showIcon={false}
+                    message={connectionErrorMessage}
+                    style={{ fontSize: 12, padding: '4px 8px' }}
+                  />
+                ) : null}
+              </Flex>
+            )}
+          </>
+        ) : (
+          <>
+            {recordingControlsAvailable ? (
+              <Button
+                block
+                disabled={actionDisabled}
+                icon={actionIcon}
+                onClick={toggleRecording}
+                type={recordingState.recording ? 'default' : 'primary'}
+              >
+                {recordingButtonText}
+              </Button>
+            ) : (
+              <Button
+                block
+                disabled={disconnectingMeet2Note}
+                icon={<LinkOutlined />}
+                loading={connectingMeet2Note}
+                onClick={connectMeet2Note}
+                type="primary"
+              >
+                Connect to Meet2Note
+              </Button>
+            )}
+            {connectionErrorMessage && !recordingControlsAvailable ? (
               <Alert
                 type="error"
                 showIcon={false}
@@ -580,79 +634,59 @@ function App(): React.ReactElement {
                 style={{ fontSize: 12, padding: '4px 8px' }}
               />
             ) : null}
+            <Divider style={{ margin: '4px 0' }} />
+            <Flex vertical gap={6}>
+              <Text strong style={{ fontSize: 12, lineHeight: 1.2 }}>
+                Recordings
+              </Text>
+              {visibleRecentRecordings.length ? (
+                visibleRecentRecordings.map(item => (
+                  <Flex
+                    key={item.localId}
+                    vertical
+                    gap={3}
+                    style={{ borderTop: '1px solid #f0f0f0', paddingTop: 5 }}
+                  >
+                    <Flex align="center" justify="space-between" gap={6}>
+                      <Text
+                        title={item.title}
+                        style={{
+                          fontSize: 12,
+                          lineHeight: 1.2,
+                          maxWidth: 150,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {item.title}
+                      </Text>
+                      <Tag
+                        color={getHistoryTagColor(item.status)}
+                        style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: '16px' }}
+                      >
+                        {item.status}
+                      </Tag>
+                    </Flex>
+                    <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+                      {formatTime(item.startedAt)} · {formatDuration(item.durationMs)}
+                    </Text>
+                    <Text
+                      type={item.status === 'failed' ? 'danger' : 'secondary'}
+                      style={{ fontSize: 11, lineHeight: 1.2 }}
+                    >
+                      {getHistoryStatusText(item, now)}
+                    </Text>
+                  </Flex>
+                ))
+              ) : (
+                <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+                  {recentRecordingsEmptyText}
+                </Text>
+              )}
+            </Flex>
           </>
         )}
-        {recordingControlsAvailable ? (
-          <>
-            <Divider style={{ margin: '4px 0' }} />
-            <Button
-              block
-              disabled={actionDisabled}
-              icon={actionIcon}
-              onClick={toggleRecording}
-              type={recordingState.recording ? 'default' : 'primary'}
-            >
-              {recordingButtonText}
-            </Button>
-            <Space size={6} align="start">
-              {visibleRecentRecordings.some(item => item.status === 'ready') ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
-              <Text style={{ fontSize: 12, lineHeight: 1.25 }}>{recordingText}</Text>
-            </Space>
-          </>
-        ) : null}
-        <>
-          <Divider style={{ margin: '4px 0' }} />
-          <Flex vertical gap={6}>
-            <Text strong style={{ fontSize: 12, lineHeight: 1.2 }}>
-              Recent recordings
-            </Text>
-            {visibleRecentRecordings.length ? (
-              visibleRecentRecordings.map(item => (
-                <Flex
-                  key={item.localId}
-                  vertical
-                  gap={3}
-                  style={{ borderTop: '1px solid #f0f0f0', paddingTop: 5 }}
-                >
-                  <Flex align="center" justify="space-between" gap={6}>
-                    <Text
-                      title={item.title}
-                      style={{
-                        fontSize: 12,
-                        lineHeight: 1.2,
-                        maxWidth: 132,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
-                      {item.title}
-                    </Text>
-                    <Tag
-                      color={getHistoryTagColor(item.status)}
-                      style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: '16px' }}
-                    >
-                      {item.status}
-                    </Tag>
-                  </Flex>
-                  <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
-                    {formatTime(item.startedAt)} · {formatDuration(item.durationMs)}
-                  </Text>
-                  <Text
-                    type={item.status === 'failed' ? 'danger' : 'secondary'}
-                    style={{ fontSize: 11, lineHeight: 1.2 }}
-                  >
-                    {getHistoryStatusText(item, now)}
-                  </Text>
-                </Flex>
-              ))
-            ) : (
-              <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
-                {recentRecordingsEmptyText}
-              </Text>
-            )}
-          </Flex>
-        </>
       </Flex>
     </ConfigProvider>
   )
