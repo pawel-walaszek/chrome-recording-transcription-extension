@@ -45,6 +45,7 @@ export interface RecordingHistoryItem {
 export const RECORDING_HISTORY_KEY = 'meet2noteRecordingHistory'
 export const RECORDING_HISTORY_LIMIT = 10
 export const POPUP_RECORDING_HISTORY_LIMIT = 5
+export const LOCAL_ONLY_FAILURE_HISTORY_TTL_MS = 3 * 60 * 1000
 
 type StoredRecordingHistory = Partial<Record<typeof RECORDING_HISTORY_KEY, unknown>>
 
@@ -188,14 +189,37 @@ export function normalizeRecordingHistoryItem(value: unknown): RecordingHistoryI
   return sanitizeHistoryItem(value)
 }
 
-export function normalizeRecordingHistory(value: unknown): RecordingHistoryItem[] {
+function timestampMs(value: string): number | null {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+export function isLocalOnlyFailureWithoutRecording(item: RecordingHistoryItem): boolean {
+  return item.status === 'failed' &&
+    !item.backendRecordingId &&
+    item.failureReason !== 'auth_required'
+}
+
+export function isExpiredLocalOnlyFailureWithoutRecording(
+  item: RecordingHistoryItem,
+  nowMs = Date.now()
+): boolean {
+  if (!isLocalOnlyFailureWithoutRecording(item)) return false
+  const timestamp = timestampMs(item.updatedAt) ?? timestampMs(item.createdAt)
+  if (timestamp == null) return false
+  return nowMs - timestamp >= LOCAL_ONLY_FAILURE_HISTORY_TTL_MS
+}
+
+export function normalizeRecordingHistory(value: unknown, nowMs = Date.now()): RecordingHistoryItem[] {
   if (!Array.isArray(value)) return []
   const unique = new Map<string, RecordingHistoryItem>()
   for (const item of value) {
     const sanitized = sanitizeHistoryItem(item)
     if (sanitized) unique.set(sanitized.localId, sanitized)
   }
-  return trimRecordingHistory(Array.from(unique.values()))
+  return trimRecordingHistory(
+    Array.from(unique.values()).filter(item => !isExpiredLocalOnlyFailureWithoutRecording(item, nowMs))
+  )
 }
 
 export function trimRecordingHistory(items: RecordingHistoryItem[]): RecordingHistoryItem[] {

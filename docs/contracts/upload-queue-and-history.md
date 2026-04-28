@@ -45,7 +45,9 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 3. Pozycja historii powinna zawierać co najmniej tytuł, status, czas rozpoczęcia, czas trwania, rozmiary assetów, liczbę prób, `backendRecordingId`, listę assetów i ewentualny błąd.
 4. Długie tytuły w popupie powinny być skracane elipsą.
 5. Po udanym uploadzie lokalny wpis powinien zostać scalony z backendowym `recordingId` i późniejszym statusem przetwarzania.
-6. Backendowa lista nagrań i lokalna lista popupu powinny dążyć do spójności dla ostatnich 5 pozycji; zanim backend zna aktywne nagranie, lokalna historia pozostaje źródłem stanów przejściowych.
+6. Gdy backend zwraca listę nagrań, popup traktuje ją jako źródło kolejności i pozycji dla nagrań znanych backendowi.
+7. Lokalne wpisy bez `backendRecordingId` mogą uzupełniać popup tylko dla stanów przejściowych, których backend jeszcze nie zna: `recording`, `finalizing`, `upload_queued`, `uploading` oraz `failed` z `failureReason: "auth_required"`.
+8. Lokalne `failed` bez `backendRecordingId` i bez możliwości wznowienia uploadu nie reprezentują nagrania; mogą być widoczne w popupie maksymalnie 3 minuty jako diagnostyka, nie powinny wypierać pozycji backendowych i nie są propagowane do backendu.
 
 ## Komunikacja
 

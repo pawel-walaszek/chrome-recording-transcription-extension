@@ -9,6 +9,7 @@ import {
 } from './extensionAuth'
 import { clearMicPreferences, getMicPreferences, type MicPreferences } from './micPreferences'
 import {
+  isLocalOnlyFailureWithoutRecording,
   normalizeRecordingHistory,
   POPUP_RECORDING_HISTORY_LIMIT,
   readRecordingHistory,
@@ -191,36 +192,53 @@ function mergeRecordingHistory(
   localHistory: RecordingHistoryItem[],
   backendHistory: RecordingHistoryItem[]
 ): RecordingHistoryItem[] {
-  const byLocalId = new Map<string, RecordingHistoryItem>()
-  const byBackendId = new Map<string, string>()
+  const normalizedLocalHistory = normalizeRecordingHistory(localHistory)
+  const normalizedBackendHistory = normalizeRecordingHistory(backendHistory)
 
-  for (const item of normalizeRecordingHistory(localHistory)) {
-    byLocalId.set(item.localId, item)
-    if (item.backendRecordingId) byBackendId.set(item.backendRecordingId, item.localId)
-  }
+  if (!normalizedBackendHistory.length) return normalizedLocalHistory
 
-  for (const backendItem of normalizeRecordingHistory(backendHistory)) {
-    const backendId = backendItem.backendRecordingId
-    const existingLocalId = backendId ? byBackendId.get(backendId) : undefined
-    if (existingLocalId) {
-      const existing = byLocalId.get(existingLocalId)
-      if (existing) {
-        byLocalId.set(existingLocalId, {
-          ...existing,
-          status: backendItem.status,
-          title: mergedRecordingTitle(existing, backendItem),
-          durationMs: backendItem.durationMs > 0 ? backendItem.durationMs : existing.durationMs,
-          backendRecordingId: backendId,
-          error: backendItem.error,
-          updatedAt: backendItem.updatedAt
-        })
-        continue
-      }
+  const localByBackendId = new Map<string, RecordingHistoryItem>()
+
+  for (const item of normalizedLocalHistory) {
+    if (item.backendRecordingId) {
+      localByBackendId.set(item.backendRecordingId, item)
     }
-    byLocalId.set(backendItem.localId, backendItem)
   }
 
-  return normalizeRecordingHistory(Array.from(byLocalId.values()))
+  const backendMergedHistory = normalizedBackendHistory.map((backendItem) => {
+    const backendId = backendItem.backendRecordingId
+    const existing = backendId ? localByBackendId.get(backendId) : undefined
+    if (!existing) return backendItem
+
+    return {
+      ...existing,
+      status: backendItem.status,
+      title: mergedRecordingTitle(existing, backendItem),
+      startedAt: backendItem.startedAt,
+      stoppedAt: backendItem.stoppedAt,
+      durationMs: backendItem.durationMs > 0 ? backendItem.durationMs : existing.durationMs,
+      backendRecordingId: backendId,
+      error: backendItem.error,
+      failureReason: backendItem.failureReason,
+      createdAt: backendItem.createdAt,
+      updatedAt: backendItem.updatedAt
+    }
+  })
+
+  const backendIds = new Set(
+    backendMergedHistory
+      .map(item => item.backendRecordingId)
+      .filter((backendId): backendId is string => typeof backendId === 'string' && backendId.length > 0)
+  )
+  const localOnlyActionableHistory = normalizedLocalHistory.filter((item) => (
+    isLocalOnlyPopupHistoryItem(item) &&
+    (!item.backendRecordingId || !backendIds.has(item.backendRecordingId))
+  ))
+
+  return [
+    ...localOnlyActionableHistory,
+    ...backendMergedHistory
+  ]
 }
 
 function mergedRecordingTitle(existing: RecordingHistoryItem, backendItem: RecordingHistoryItem): string {
@@ -228,6 +246,15 @@ function mergedRecordingTitle(existing: RecordingHistoryItem, backendItem: Recor
     return backendItem.title
   }
   return existing.title || backendItem.title
+}
+
+function isLocalOnlyPopupHistoryItem(item: RecordingHistoryItem): boolean {
+  return item.status === 'recording' ||
+    item.status === 'finalizing' ||
+    item.status === 'upload_queued' ||
+    item.status === 'uploading' ||
+    (item.status === 'failed' && item.failureReason === 'auth_required') ||
+    isLocalOnlyFailureWithoutRecording(item)
 }
 
 function scheduleBackendRecordingsRefresh(): void {

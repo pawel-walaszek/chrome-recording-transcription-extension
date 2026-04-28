@@ -25,6 +25,7 @@ import {
 } from './extensionAuth'
 import { getMicPreferences, MIC_DEVICE_ID_KEY, MIC_LABEL_KEY } from './micPreferences'
 import {
+  isLocalOnlyFailureWithoutRecording,
   normalizeRecordingHistory,
   POPUP_RECORDING_HISTORY_LIMIT,
   type RecordingHistoryItem,
@@ -115,8 +116,8 @@ function getRecordingButtonText(recordingState: RecordingStatus): string {
   return recordingState.recording ? 'Stop & Upload' : 'Start Recording'
 }
 
-function sanitizeRecordingHistory(value: unknown): RecordingHistoryItem[] {
-  return normalizeRecordingHistory(value).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+function sanitizeRecordingHistory(value: unknown, nowMs = Date.now()): RecordingHistoryItem[] {
+  return normalizeRecordingHistory(value, nowMs).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
 }
 
 function formatTime(value: string): string {
@@ -148,8 +149,9 @@ function getHistoryStatusText(item: RecordingHistoryItem, now: number): string {
 
 function getHistoryTagColor(status: RecordingUploadStatus): string {
   if (status === 'ready') return 'success'
-  if (status === 'failed' || status === 'expired' || status === 'canceled') return 'error'
-  if (status === 'recording' || status === 'finalizing' || status === 'uploading' || status === 'upload_queued' || status === 'processing' || status === 'processing_queued') return 'processing'
+  if (status === 'failed') return 'error'
+  if (status === 'upload_queued' || status === 'processing_queued') return 'warning'
+  if (status === 'finalizing' || status === 'uploading' || status === 'processing') return 'processing'
   return 'default'
 }
 
@@ -179,7 +181,9 @@ function App(): React.ReactElement {
   const inFlightRef = useRef(false)
 
   useEffect(() => {
-    if (!recordingState.recording && !recentRecordings.some(item => item.status === 'upload_queued' && item.nextRetryAt && item.nextRetryAt > Date.now())) return undefined
+    const hasPendingRetry = recentRecordings.some(item => item.status === 'upload_queued' && item.nextRetryAt && item.nextRetryAt > Date.now())
+    const hasTimedLocalFailure = recentRecordings.some(isLocalOnlyFailureWithoutRecording)
+    if (!recordingState.recording && !hasPendingRetry && !hasTimedLocalFailure) return undefined
 
     setNow(Date.now())
     const timerId = window.setInterval(() => setNow(Date.now()), 1000)
@@ -300,6 +304,10 @@ function App(): React.ReactElement {
     () => getRecordingText(recordingState, now),
     [recordingState, now]
   )
+  const visibleRecentRecordings = useMemo(
+    () => sanitizeRecordingHistory(recentRecordings, now),
+    [recentRecordings, now]
+  )
   const recordingButtonText = getRecordingButtonText(recordingState)
   const recordingControlsAvailable = meet2NoteConnection.connected
   const connectionActionDisabled = recordingState.recording ||
@@ -309,7 +317,7 @@ function App(): React.ReactElement {
     inFlight ||
     recordingState.starting ||
     recordingState.stopping
-  const authRequiredUpload = recentRecordings.find(item => item.status === 'failed' && item.failureReason === 'auth_required')
+  const authRequiredUpload = visibleRecentRecordings.find(item => item.status === 'failed' && item.failureReason === 'auth_required')
   const connectionErrorMessage = meet2NoteConnection.authError ||
     authRequiredUpload?.error ||
     null
@@ -587,7 +595,7 @@ function App(): React.ReactElement {
               {recordingButtonText}
             </Button>
             <Space size={6} align="start">
-              {recentRecordings.some(item => item.status === 'ready') ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
+              {visibleRecentRecordings.some(item => item.status === 'ready') ? <CheckCircleOutlined style={{ color: '#389e0d' }} /> : null}
               <Text style={{ fontSize: 12, lineHeight: 1.25 }}>{recordingText}</Text>
             </Space>
           </>
@@ -598,8 +606,8 @@ function App(): React.ReactElement {
             <Text strong style={{ fontSize: 12, lineHeight: 1.2 }}>
               Recent recordings
             </Text>
-            {recentRecordings.length ? (
-              recentRecordings.map(item => (
+            {visibleRecentRecordings.length ? (
+              visibleRecentRecordings.map(item => (
                 <Flex
                   key={item.localId}
                   vertical
