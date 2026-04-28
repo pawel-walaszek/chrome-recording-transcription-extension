@@ -14,7 +14,6 @@ import {
   POPUP_RECORDING_HISTORY_LIMIT,
   readRecordingHistory,
   type RecordingHistoryItem,
-  type RecordingUploadAsset,
   type RecordingUploadStatus,
   upsertRecordingHistoryItem
 } from './recordingHistory'
@@ -74,6 +73,27 @@ function pushState(recording: boolean, extra?: Record<string, any>) {
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms))
 
+function wakeUploadQueueWorker(): void {
+  const wake = uploadQueueWake
+  uploadQueueWake = null
+  if (wake) wake()
+}
+
+function sleepUntilUploadQueueWakeOrTimeout(ms: number): Promise<void> {
+  let wake: (() => void) | null = null
+  const wakePromise = new Promise<void>((resolve) => {
+    wake = resolve
+    uploadQueueWake = resolve
+  })
+
+  return Promise.race([
+    sleep(ms),
+    wakePromise
+  ]).then(() => {
+    if (wake && uploadQueueWake === wake) uploadQueueWake = null
+  })
+}
+
 interface UploadQueueEntry extends RecordingHistoryItem {
   videoBlob: Blob
   microphoneBlob: Blob | null
@@ -81,6 +101,7 @@ interface UploadQueueEntry extends RecordingHistoryItem {
 
 let uploadQueue: UploadQueueEntry[] = []
 let uploadWorkerRunning = false
+let uploadQueueWake: (() => void) | null = null
 
 function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
   const {
@@ -93,10 +114,15 @@ function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
 
 async function publishUploadQueueState(items?: RecordingHistoryItem[]): Promise<void> {
   const history = items ?? await readRecordingHistory().catch(() => [])
-  getPort().postMessage({
-    type: 'UPLOAD_QUEUE_STATE',
-    items: history.slice(0, POPUP_RECORDING_HISTORY_LIMIT)
-  })
+  try {
+    getPort().postMessage({
+      type: 'UPLOAD_QUEUE_STATE',
+      items: history.slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+    })
+  } catch (e) {
+    log('Upload queue state broadcast failed', e)
+    captureException(e, { operation: 'publishUploadQueueState' })
+  }
 }
 
 async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
@@ -566,7 +592,7 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
       const result = await uploadRecordingOnce(uploadInputFromQueueEntry(entry), extensionToken)
       await updateQueueEntry(entry, 'uploaded', {
         backendRecordingId: result.recordingId,
-        assets: result.assets as RecordingUploadAsset[],
+        assets: result.assets,
         nextRetryAt: null,
         error: null
       })
@@ -613,7 +639,7 @@ async function runUploadQueueWorker(): Promise<void> {
       if (!nextEntry) {
         const nextRetryDelayMs = getNextUploadRetryDelayMs(now)
         if (nextRetryDelayMs == null) return
-        await sleep(nextRetryDelayMs)
+        await sleepUntilUploadQueueWakeOrTimeout(nextRetryDelayMs)
         continue
       }
 
@@ -671,6 +697,7 @@ async function enqueueUpload(entry: UploadQueueEntry): Promise<void> {
 
   uploadQueue.push(entry)
   await persistQueueEntry(entry)
+  wakeUploadQueueWorker()
   void runUploadQueueWorker().catch((e) => {
     log('Unexpected upload queue worker failure', e)
     captureException(e, { operation: 'runUploadQueueWorker.unhandled' })
@@ -688,6 +715,7 @@ async function requeueAuthRequiredUploads(): Promise<void> {
     })
   }
   if (changed) {
+    wakeUploadQueueWorker()
     void runUploadQueueWorker().catch((e) => {
       log('Unexpected upload queue resume failure', e)
       captureException(e, { operation: 'requeueAuthRequiredUploads.unhandled' })

@@ -1,3 +1,5 @@
+import type { UploadAsset } from './uploadClient'
+
 export type RecordingUploadStatus =
   | 'queued'
   | 'uploading'
@@ -6,7 +8,7 @@ export type RecordingUploadStatus =
   | 'auth_required'
   | 'failed'
 
-export type RecordingUploadAsset = 'video_audio' | 'microphone'
+export type RecordingUploadAsset = UploadAsset
 
 export interface RecordingHistoryItem {
   localId: string
