@@ -29,13 +29,11 @@ export interface RecordingHistoryItem {
   updatedAt: string
 }
 
-interface StoredRecordingHistory {
-  meet2noteRecordingHistory?: unknown
-}
-
 export const RECORDING_HISTORY_KEY = 'meet2noteRecordingHistory'
 export const RECORDING_HISTORY_LIMIT = 10
 export const POPUP_RECORDING_HISTORY_LIMIT = 5
+
+type StoredRecordingHistory = Partial<Record<typeof RECORDING_HISTORY_KEY, unknown>>
 
 const NON_TERMINAL_STATUSES = new Set<RecordingUploadStatus>([
   'queued',
@@ -173,7 +171,7 @@ export function trimRecordingHistory(items: RecordingHistoryItem[]): RecordingHi
 
 export async function readRecordingHistory(): Promise<RecordingHistoryItem[]> {
   const items = await storageGet<StoredRecordingHistory>([RECORDING_HISTORY_KEY])
-  return normalizeRecordingHistory(items.meet2noteRecordingHistory)
+  return normalizeRecordingHistory(items[RECORDING_HISTORY_KEY])
 }
 
 export async function writeRecordingHistory(items: RecordingHistoryItem[]): Promise<RecordingHistoryItem[]> {

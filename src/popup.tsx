@@ -25,6 +25,7 @@ import {
 } from './extensionAuth'
 import { getMicPreferences, MIC_DEVICE_ID_KEY, MIC_LABEL_KEY } from './micPreferences'
 import {
+  normalizeRecordingHistory,
   POPUP_RECORDING_HISTORY_LIMIT,
   type RecordingHistoryItem,
   type RecordingUploadStatus
@@ -114,52 +115,8 @@ function getRecordingButtonText(recordingState: RecordingStatus): string {
   return recordingState.recording ? 'Stop & Upload' : 'Start Recording'
 }
 
-function isRecordingUploadStatus(value: unknown): value is RecordingUploadStatus {
-  return value === 'queued' ||
-    value === 'uploading' ||
-    value === 'retrying' ||
-    value === 'uploaded' ||
-    value === 'auth_required' ||
-    value === 'failed'
-}
-
-function sanitizeRecordingHistoryItem(value: unknown): RecordingHistoryItem | null {
-  if (!value || typeof value !== 'object') return null
-  const record = value as Record<string, unknown>
-  if (typeof record.localId !== 'string' || !record.localId) return null
-  if (!isRecordingUploadStatus(record.status)) return null
-
-  const now = new Date().toISOString()
-  return {
-    localId: record.localId,
-    status: record.status,
-    title: typeof record.title === 'string' && record.title ? record.title : 'Browser recording',
-    meetingId: typeof record.meetingId === 'string' ? record.meetingId : undefined,
-    meetingTitle: typeof record.meetingTitle === 'string' ? record.meetingTitle : undefined,
-    tabUrl: typeof record.tabUrl === 'string' ? record.tabUrl : undefined,
-    startedAt: typeof record.startedAt === 'string' ? record.startedAt : now,
-    stoppedAt: typeof record.stoppedAt === 'string' ? record.stoppedAt : now,
-    durationMs: typeof record.durationMs === 'number' ? record.durationMs : 0,
-    videoBytes: typeof record.videoBytes === 'number' ? record.videoBytes : 0,
-    microphoneBytes: typeof record.microphoneBytes === 'number' ? record.microphoneBytes : 0,
-    attempt: typeof record.attempt === 'number' ? record.attempt : 0,
-    nextRetryAt: typeof record.nextRetryAt === 'number' ? record.nextRetryAt : null,
-    backendRecordingId: typeof record.backendRecordingId === 'string' ? record.backendRecordingId : null,
-    assets: Array.isArray(record.assets)
-      ? record.assets.filter((asset): asset is 'video_audio' | 'microphone' => asset === 'video_audio' || asset === 'microphone')
-      : [],
-    error: typeof record.error === 'string' ? record.error : null,
-    createdAt: typeof record.createdAt === 'string' ? record.createdAt : now,
-    updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : now
-  }
-}
-
 function sanitizeRecordingHistory(value: unknown): RecordingHistoryItem[] {
-  if (!Array.isArray(value)) return []
-  return value
-    .map(sanitizeRecordingHistoryItem)
-    .filter((item): item is RecordingHistoryItem => !!item)
-    .slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+  return normalizeRecordingHistory(value).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
 }
 
 function formatTime(value: string): string {

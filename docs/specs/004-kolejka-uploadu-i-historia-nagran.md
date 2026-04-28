@@ -75,6 +75,7 @@ Użytkownik powinien widzieć oddzielnie:
    a) Domyślny limit: 10 ostatnich pozycji.
    b) Starsze pozycje terminalne są usuwane po przekroczeniu limitu.
    c) Pozycje nieterminalne (`queued`, `uploading`, `retrying`, `auth_required`) nie są usuwane przez limit, dopóki mają szansę na upload.
+   d) Pamięciowa kolejka blobów w offscreen ma twardy limit 3 pozycji i 2 GiB łącznego rozmiaru blobów; po przekroczeniu limitu nowa pozycja przechodzi w `failed` z czytelnym błędem.
 
 7. Globalny `uploadStatus` zostaje zastąpiony snapshotem kolejki.
    a) Popup nie powinien już blokować przycisku startu tylko dlatego, że istnieje aktywny upload.

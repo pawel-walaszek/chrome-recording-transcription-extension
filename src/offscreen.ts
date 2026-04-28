@@ -29,6 +29,8 @@ const WANT_MIC_ASSET = true
 const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 const UPLOAD_RETRY_INTERVAL_MS = 15_000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
+const MAX_UPLOAD_QUEUE_ENTRIES = 3
+const MAX_UPLOAD_QUEUE_BYTES = 2 * 1024 * 1024 * 1024
 
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
@@ -477,6 +479,41 @@ function removeQueueEntry(localId: string): void {
   uploadQueue = uploadQueue.filter(entry => entry.localId !== localId)
 }
 
+function getQueueEntryBytes(entry: UploadQueueEntry): number {
+  return entry.videoBlob.size + (entry.microphoneBlob?.size || 0)
+}
+
+function getUploadQueueBytes(entries = uploadQueue): number {
+  return entries.reduce((total, entry) => total + getQueueEntryBytes(entry), 0)
+}
+
+async function rejectQueueEntryForMemoryLimit(entry: UploadQueueEntry): Promise<void> {
+  const now = new Date().toISOString()
+  const currentBytes = getUploadQueueBytes()
+  const entryBytes = getQueueEntryBytes(entry)
+  const message = 'Upload queue is full. Try again after pending uploads finish.'
+
+  Object.assign(entry, {
+    status: 'failed' as const,
+    error: message,
+    nextRetryAt: null,
+    updatedAt: now
+  })
+  await persistQueueEntry(entry)
+  captureMessage(
+    'Upload queue rejected recording because memory limit was reached.',
+    'warning',
+    {
+      operation: 'enqueueUpload.memoryLimit',
+      queueEntries: uploadQueue.length,
+      queueBytes: currentBytes,
+      recordingBytes: entryBytes,
+      maxQueueEntries: MAX_UPLOAD_QUEUE_ENTRIES,
+      maxQueueBytes: MAX_UPLOAD_QUEUE_BYTES
+    }
+  )
+}
+
 async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'done' | 'auth_required'> {
   while (true) {
     const attempt = entry.attempt + 1
@@ -545,6 +582,16 @@ async function runUploadQueueWorker(): Promise<void> {
 }
 
 async function enqueueUpload(entry: UploadQueueEntry): Promise<void> {
+  const queuedBytes = getUploadQueueBytes()
+  const entryBytes = getQueueEntryBytes(entry)
+  if (
+    uploadQueue.length >= MAX_UPLOAD_QUEUE_ENTRIES ||
+    queuedBytes + entryBytes > MAX_UPLOAD_QUEUE_BYTES
+  ) {
+    await rejectQueueEntryForMemoryLimit(entry)
+    return
+  }
+
   uploadQueue.push(entry)
   await persistQueueEntry(entry)
   void runUploadQueueWorker().catch((e) => {
