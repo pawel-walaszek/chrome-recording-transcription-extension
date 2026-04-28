@@ -41,8 +41,10 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 - Pliki `AGENTS.md` sa dla agentow i automatyzacji.
 - Pliki `README.md` sa dla czlowieka.
 - Dokumentacje techniczna trzymaj w `docs/`; indeks i zasady dla tego katalogu sa w `docs/AGENTS.md`.
+- Trwale zasady projektu i kontrakty integracyjne trzymaj w `docs/contracts/`.
 - Przewodniki agentowe trzymaj w `docs/agent-guides/`; maja zawierac lokalne zasady i linki do zrodel prawdy, bez kopiowania obcych dokumentacji.
-- Specyfikacje wiekszych zmian zapisuj w `docs/specs/` przed implementacja, gdy zadanie nie miesci sie w prostej poprawce.
+- Robocze specyfikacje wiekszych zmian zapisuj w `docs/specs/` przed implementacja, gdy zadanie nie miesci sie w prostej poprawce.
+- Po implementacji usuwaj nieaktualna specyfikacje albo przenos trwale ustalenia do `docs/contracts/`.
 - Runbooki trzymaj w `docs/runbooks/` tylko dla powtarzalnych procedur.
 - Unikaj semantycznych duplikatow miedzy `AGENTS.md`, `README.md` i dokumentacja.
 
@@ -79,7 +81,7 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
    c) zaktualizuj dokumentacje po obu stronach,
    d) uruchom dostepne walidacje albo opisz, czego nie dalo sie sprawdzic.
 
-4. Zrodlem ustalen integracyjnych sa specyfikacje i issue cross-repo oraz realne zachowanie API backendu.
+4. Zrodlem ustalen integracyjnych sa kontrakty, robocze specyfikacje, issue cross-repo oraz realne zachowanie API backendu.
    a) Jesli backend wybierze konkretna forme dokumentowania API, dopiero wtedy linkuj ja jako referencje.
 
 5. Docelowy endpoint dla uploadu z rozszerzenia to `https://meet2note.com`.

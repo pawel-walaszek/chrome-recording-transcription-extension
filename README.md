@@ -156,7 +156,7 @@ Po każdym ponownym buildzie kliknij `Reload` przy rozszerzeniu w `chrome://exte
 ├─ offscreen.html
 ├─ micsetup.html
 ├─ .github/             # szablony GitHub, instrukcje Copilota i CI
-├─ docs/                # mapa systemu, specyfikacje i runbooki
+├─ docs/                # mapa systemu, kontrakty, specyfikacje robocze i runbooki
 ├─ scripts/             # lokalne skrypty pomocnicze
 ├─ src/
 │  ├─ background.ts     # service worker MV3: tworzy offscreen i koordynuje strumienie
