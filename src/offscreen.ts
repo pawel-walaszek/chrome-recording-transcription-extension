@@ -65,7 +65,11 @@ function log(...a: any[]) { console.log('[offscreen]', ...a) }
 function connectPort(): chrome.runtime.Port {
   try { portRef?.disconnect() } catch {}
   const p: chrome.runtime.Port = chrome.runtime.connect({ name: 'offscreen' })
-  p.onDisconnect.addListener(() => { log('Port disconnected'); portRef = null })
+  p.onMessage.addListener(handleOffscreenPortMessage)
+  p.onDisconnect.addListener(() => {
+    log('Port disconnected')
+    if (portRef === p) portRef = null
+  })
   // Poinformuj tło, że offscreen działa.
   p.postMessage({ type: 'OFFSCREEN_READY' })
   log('READY signaled via Port')
@@ -668,7 +672,8 @@ async function updateQueueEntry(
     'backendRecordingId' |
     'assets' |
     'error' |
-    'failureReason'
+    'failureReason' |
+    'uploadProgressPercent'
   >> = {}
 ): Promise<void> {
   const nextEntry: UploadQueueEntry = {
@@ -748,20 +753,56 @@ function getNextUploadRetryDelayMs(now: number): number | null {
 async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'done' | 'auth_required'> {
   while (true) {
     const attempt = entry.attempt + 1
+    let lastPersistedProgressPercent = -1
+    let lastProgressPersistedAt = 0
+    let acceptingProgressUpdates = true
+    let progressPersistQueue: Promise<unknown> = Promise.resolve()
     await updateQueueEntry(entry, 'uploading', {
       attempt,
       nextRetryAt: null,
-      error: null
+      error: null,
+      uploadProgressPercent: 0
     })
 
     try {
       const extensionToken = await requestMeet2NoteExtensionToken()
-      const result = await uploadRecordingOnce(uploadInputFromQueueEntry(entry), extensionToken)
+      const result = await uploadRecordingOnce(uploadInputFromQueueEntry(entry), extensionToken, (progress) => {
+        const percent = progress.totalBytes > 0
+          ? Math.max(0, Math.min(100, Math.floor((progress.loadedBytes / progress.totalBytes) * 100)))
+          : 0
+        const now = Date.now()
+        if (
+          percent === lastPersistedProgressPercent ||
+          (percent < 100 && percent - lastPersistedProgressPercent < 1 && now - lastProgressPersistedAt < 1000)
+        ) {
+          return
+        }
+        lastPersistedProgressPercent = percent
+        lastProgressPersistedAt = now
+        progressPersistQueue = progressPersistQueue
+          .catch(() => undefined)
+          .then(async () => {
+            if (!acceptingProgressUpdates || entry.status !== 'uploading') return
+            await updateQueueEntry(entry, 'uploading', {
+              uploadProgressPercent: percent
+            })
+          })
+          .catch((e) => {
+            captureException(e, {
+              operation: 'uploadQueueEntryUntilTerminal.progress',
+              localId: entry.localId,
+              percent
+            })
+          })
+      })
+      acceptingProgressUpdates = false
+      await progressPersistQueue.catch(() => undefined)
       await updateQueueEntry(entry, 'processing_queued', {
         backendRecordingId: result.recordingId,
         assets: result.assets,
         nextRetryAt: null,
-        error: null
+        error: null,
+        uploadProgressPercent: null
       })
       await cleanupTerminalSpoolEntry(entry.localId, 'uploadQueueEntryUntilTerminal.cleanupUploaded')
       removeQueueEntry(entry.localId)
@@ -769,6 +810,8 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
       return 'done'
     } catch (e) {
       if (isMeet2NoteAuthError(e)) {
+        acceptingProgressUpdates = false
+        await progressPersistQueue.catch(() => undefined)
         const message = e.message || 'Connect to Meet2Note before uploading.'
         await chrome.runtime.sendMessage({
           type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
@@ -777,7 +820,8 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
         await updateQueueEntry(entry, 'failed', {
           error: message,
           failureReason: 'auth_required',
-          nextRetryAt: null
+          nextRetryAt: null,
+          uploadProgressPercent: null
         })
         log('Upload requires Meet2Note connection', { localId: entry.localId, attempt })
         return 'auth_required'
@@ -791,10 +835,13 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
       })
       const nextRetryAt = Date.now() + UPLOAD_RETRY_INTERVAL_MS
       log('Upload failed; retrying in 15 seconds', { localId: entry.localId, error: e })
+      acceptingProgressUpdates = false
+      await progressPersistQueue.catch(() => undefined)
       await updateQueueEntry(entry, 'upload_queued', {
         error: e instanceof Error ? e.message : String(e),
         failureReason: 'upload_error',
-        nextRetryAt
+        nextRetryAt,
+        uploadProgressPercent: null
       })
       await sleep(UPLOAD_RETRY_INTERVAL_MS)
     }
@@ -1439,8 +1486,7 @@ function stopRecording(reason = 'manual'): Record<string, unknown> {
 }
 
 // RPC przez port.
-const rpcPort = getPort()
-rpcPort.onMessage.addListener(async (msg: any) => {
+async function handleOffscreenPortMessage(msg: any): Promise<void> {
   try {
     if (msg?.type === 'OFFSCREEN_START') {
       const streamId = msg.streamId as string | undefined
@@ -1504,7 +1550,9 @@ rpcPort.onMessage.addListener(async (msg: any) => {
     captureException(e, { operation: 'rpcPort.onMessage' })
     respond(msg, { ok: false, error: String(e) })
   }
-})
+}
+
+getPort()
 
 // Pozwala tłu sprawdzić stan, zanim port będzie gotowy.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

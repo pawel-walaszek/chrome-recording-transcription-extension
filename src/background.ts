@@ -785,12 +785,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
       try {
         const localHistory = await upsertRecordingHistoryItem(item)
-        recentRecordings = localHistory.slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+        recentRecordings = mergeRecordingHistory(localHistory, backendRecordings).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
         broadcastUploadQueueState()
         sendResponse({ ok: true, items: recentRecordings })
 
         if (item.status === 'processing_queued' && item.backendRecordingId) {
-          scheduleBackendRecordingsRefresh()
+          scheduleBackendRecordingsRefresh(true)
         }
       } catch (e: any) {
         captureException(e, { operation: 'UPSERT_RECORDING_HISTORY_ITEM' })
