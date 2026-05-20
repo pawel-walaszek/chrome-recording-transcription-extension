@@ -42,6 +42,7 @@ const STOP_FINALIZE_TIMEOUT_MS = 10_000
 const MICROPHONE_STOP_TIMEOUT_MS = 2_000
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
 const INTERRUPTED_RECORDING_MESSAGE = 'Recording was interrupted before it could be finalized.'
+const STORAGE_ALMOST_FULL_MESSAGE = 'Browser storage is almost full. Free space before starting another recording.'
 const ORPHANED_PENDING_UPLOAD_STATUSES: RecordingUploadStatus[] = [
   'upload_queued',
   'uploading'
@@ -921,10 +922,11 @@ async function assertSpoolCapacityBeforeRecording(): Promise<void> {
     await navigator.storage?.persist?.()
     const estimate = await navigator.storage?.estimate?.()
     if (estimate?.quota && estimate.usage && estimate.usage / estimate.quota > 0.95) {
-      throw new Error('Browser storage is almost full. Free space before starting another recording.')
+      throw new Error(STORAGE_ALMOST_FULL_MESSAGE)
     }
   } catch (e) {
-    if (e instanceof Error) throw e
+    if (e instanceof Error && e.message === STORAGE_ALMOST_FULL_MESSAGE) throw e
+    captureException(e, { operation: 'assertSpoolCapacityBeforeRecording.storageEstimate' })
   }
 }
 
