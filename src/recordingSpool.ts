@@ -13,10 +13,19 @@ const ASSET_INDEX = 'localIdAsset'
 
 export const SPOOL_SCHEMA_VERSION = 1
 
+export interface RecordingSpoolUploadSession {
+  recordingId: string
+  uploadToken: string
+  expiresAt: string
+  recommendedChunkSizeBytes?: number
+  maxAssetSizeBytes?: number
+}
+
 export interface RecordingSpoolRecord extends RecordingHistoryItem {
   schemaVersion: number
   videoMimeType: string
   microphoneMimeType: string | null
+  uploadSession?: RecordingSpoolUploadSession | null
 }
 
 export interface RecordingSpoolChunk {
@@ -118,8 +127,34 @@ function normalizeSpoolRecord(record: RecordingSpoolRecord): RecordingSpoolRecor
       : 'video/webm',
     microphoneMimeType: typeof record.microphoneMimeType === 'string' && record.microphoneMimeType
       ? record.microphoneMimeType
-      : null
+      : null,
+    uploadSession: normalizeUploadSession(record.uploadSession)
   }
+}
+
+function normalizeUploadSession(value: unknown): RecordingSpoolUploadSession | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const recordingId = record.recordingId
+  const uploadToken = record.uploadToken
+  const expiresAt = record.expiresAt
+  if (typeof recordingId !== 'string' || !recordingId) return null
+  if (typeof uploadToken !== 'string' || !uploadToken) return null
+  if (typeof expiresAt !== 'string' || !expiresAt) return null
+
+  return {
+    recordingId,
+    uploadToken,
+    expiresAt,
+    recommendedChunkSizeBytes: positiveNumberOrUndefined(record.recommendedChunkSizeBytes),
+    maxAssetSizeBytes: positiveNumberOrUndefined(record.maxAssetSizeBytes)
+  }
+}
+
+function positiveNumberOrUndefined(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : undefined
 }
 
 export async function createSpoolRecording(record: RecordingSpoolRecord): Promise<void> {

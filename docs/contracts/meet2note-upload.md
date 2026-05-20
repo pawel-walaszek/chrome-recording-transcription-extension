@@ -30,14 +30,24 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
    c) `meetingTitle`, jeśli da się go ustalić bez kruchego parsowania UI,
    d) `startedAt`,
    e) `durationMs`.
-3. Backend zwraca `recordingId`, `uploadToken` i `expiresAt`.
-4. Główny asset `video_audio` jest wysyłany przez `PUT /api/upload/{recordingId}/video`.
-5. Opcjonalny asset `microphone` jest wysyłany przez `PUT /api/upload/{recordingId}/microphone`, jeśli mikrofon jest dostępny.
-6. Upload assetów używa `Content-Type: application/octet-stream`.
-7. Upload assetów i `/complete` używają nagłówków `Authorization` oraz `X-Upload-Token`.
-8. Rozszerzenie kończy upload przez `POST /api/upload/{recordingId}/complete`.
-9. Body `/complete` zawiera tylko faktycznie wysłane assety.
-10. `uploadToken`, pełnych URL-i z tokenami ani zawartości blobów nie wolno logować.
+3. Backend zwraca `recordingId`, `uploadToken`, `expiresAt`, `uploadMode`, `recommendedChunkSizeBytes` i `maxAssetSizeBytes`.
+4. Docelowy `uploadMode` to `chunked`; rozszerzenie nie używa legacy endpointów `/video` ani `/microphone`.
+5. Dla każdego assetu rozszerzenie inicjalizuje metadane przez `PUT /api/upload/{recordingId}/assets/{asset}`.
+   a) `asset` to `video_audio` albo `microphone`.
+   b) Body zawiera `contentType`, `sizeBytes`, `chunkSizeBytes` i `totalChunks`.
+6. Przed wysyłką brakujących chunków albo po błędzie rozszerzenie pobiera stan assetu przez `GET /api/upload/{recordingId}/assets/{asset}`.
+   a) Backend zwraca między innymi `receivedChunks` i `receivedBytes`.
+   b) Rozszerzenie wysyła tylko chunki, których backend jeszcze nie przyjął.
+7. Pojedynczy chunk jest wysyłany przez `PUT /api/upload/{recordingId}/assets/{asset}/chunks/{chunkIndex}`.
+   a) Request używa `Content-Type: application/octet-stream`.
+   b) Jeden request zawiera tylko jeden chunk.
+   c) Upload chunków jest sekwencyjny w pierwszej wersji.
+8. Po przyjęciu wszystkich chunków danego assetu rozszerzenie wywołuje `POST /api/upload/{recordingId}/assets/{asset}/complete`.
+9. Rozszerzenie kończy całe nagranie przez `POST /api/upload/{recordingId}/complete`.
+10. Body globalnego `/complete` zawiera tylko faktycznie wysłane i zakończone assety.
+11. Endpointy assetów, chunków i `/complete` używają nagłówków `Authorization` oraz `X-Upload-Token`.
+12. `uploadToken`, pełnych URL-i z tokenami ani zawartości blobów nie wolno logować.
+13. Lokalny spool IndexedDB jest czyszczony dopiero po udanym globalnym `/complete`.
 
 ## Assety
 
@@ -50,10 +60,12 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 ## Błędy i autoryzacja
 
 1. Jeśli `/init` nie powiedzie się, rozszerzenie nie wysyła assetów.
-2. Jeśli upload assetu nie powiedzie się, rozszerzenie nie wywołuje `/complete`.
-3. Błędy sieciowe i HTTP trafiają do istniejącej diagnostyki bez sekretów i bez zawartości nagrań.
-4. `401` albo `403` oznacza konieczność ponownego połączenia z Meet2Note.
-5. Po `401` albo `403` rozszerzenie czyści lokalny token, oznacza odpowiednią pozycję jako wymagającą reconnect i nie ponawia zwykłego uploadu bez końca.
+2. Jeśli inicjalizacja assetu, upload chunka albo asset complete nie powiedzie się, rozszerzenie nie wywołuje globalnego `/complete`.
+3. Przy retry rozszerzenie używa zapisanego `recordingId` i `uploadToken`, jeśli sesja uploadu nie wygasła.
+4. Retry nie wysyła od początku chunków już potwierdzonych przez backend.
+5. Błędy sieciowe i HTTP trafiają do istniejącej diagnostyki bez sekretów i bez zawartości nagrań.
+6. `401` albo `403` oznacza konieczność ponownego połączenia z Meet2Note.
+7. Po `401` albo `403` rozszerzenie czyści lokalny token, oznacza odpowiednią pozycję jako wymagającą reconnect i nie ponawia zwykłego uploadu bez końca.
 
 ## Uprawnienia Chrome
 
