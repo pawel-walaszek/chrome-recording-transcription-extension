@@ -119,6 +119,9 @@ function httpErrorFromStatus(operation: string, status: number, responseBody: st
 }
 
 async function httpError(operation: string, response: Response): Promise<Error> {
+  if (response.status === 401 || response.status === 403) {
+    return httpErrorFromStatus(operation, response.status)
+  }
   const body = await response.text().catch(() => null)
   return httpErrorFromStatus(operation, response.status, body)
 }
