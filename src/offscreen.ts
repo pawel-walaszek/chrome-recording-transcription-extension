@@ -753,7 +753,7 @@ function getNextUploadRetryDelayMs(now: number): number | null {
 async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'done' | 'auth_required'> {
   while (true) {
     const attempt = entry.attempt + 1
-    let lastPersistedProgressPercent = -1
+    let lastPersistedProgressPercent = 0
     let lastProgressPersistedAt = 0
     let acceptingProgressUpdates = true
     let progressPersistQueue: Promise<unknown> = Promise.resolve()
@@ -771,12 +771,7 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
           ? Math.max(0, Math.min(100, Math.floor((progress.loadedBytes / progress.totalBytes) * 100)))
           : 0
         const now = Date.now()
-        if (
-          percent === lastPersistedProgressPercent ||
-          (percent < 100 && percent - lastPersistedProgressPercent < 1 && now - lastProgressPersistedAt < 1000)
-        ) {
-          return
-        }
+        if (percent === lastPersistedProgressPercent && now - lastProgressPersistedAt < 1000) return
         lastPersistedProgressPercent = percent
         lastProgressPersistedAt = now
         progressPersistQueue = progressPersistQueue

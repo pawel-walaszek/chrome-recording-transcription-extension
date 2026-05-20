@@ -119,11 +119,13 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 
 2. Review Copilota
    a) Popros o review Copilota, jesli repozytorium to obsluguje.
-   b) Poczekaj na wynik review.
-   c) Do odwolania wykonuj tylko jedna runde PR/CR z Copilotem.
-   d) Jesli Copilot zglosi techniczne uwagi, wdrazaj je wedlug wlasnej rekomendacji bez pytania czlowieka o kazda z nich.
-   e) Pytaj czlowieka tylko wtedy, gdy uwaga jest trade-offem, moze zmienic zalozenia funkcjonalne albo wymaga decyzji produktowej.
-   f) Jesli pytasz o uwage CR, podaj licznik w formacie `Pytanie X z Y` i wyjasnij kontekst szerzej niz jednym zdaniem.
+   b) Jesli Copilot Code review jest wlaczony przez ruleset repozytorium, traktuj wypchniecie PR-a jako podstawowy trigger review; nie probuj dodawac `copilot-pull-request-reviewer` przez zwykle API review request, bo GitHub moze odrzucic to jako zwyklego collaboratora.
+   c) Jesli review nie startuje automatycznie, uzyj dostepnego w UI GitHuba triggera Copilot review albo komentarza `@copilot review`, a potem sprawdz `gh pr view`/review threads.
+   d) Poczekaj na wynik review Copilota, ale po jego otrzymaniu od razu przystap do analizy i poprawek; nie czekaj na zakonczenie CI, jesli review juz jest dostepne.
+   e) Do odwolania wykonuj tylko jedna runde PR/CR z Copilotem.
+   f) Jesli Copilot zglosi techniczne uwagi, wdrazaj je wedlug wlasnej rekomendacji bez pytania czlowieka o kazda z nich.
+   g) Pytaj czlowieka tylko wtedy, gdy uwaga jest trade-offem, moze zmienic zalozenia funkcjonalne albo wymaga decyzji produktowej.
+   h) Jesli pytasz o uwage CR, podaj licznik w formacie `Pytanie X z Y` i wyjasnij kontekst szerzej niz jednym zdaniem.
 
 3. Odpowiedzi do review
    a) Na kazda uwage Copilota odpowiedz w watku:
@@ -144,6 +146,7 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
    a) Copilot jest reviewerem pomocniczym, nie decydentem.
    b) Decyzje techniczne podejmuj samodzielnie wedlug najlepszej rekomendacji, respektujac architekture projektu.
    c) Decyzje produktowe, trade-offy i zmiany zalozen funkcjonalnych nadal eskaluj do czlowieka.
+   d) Jesli czlowiek koryguje sposob pracy agenta i wskazuje, ze zasada ma obowiazywac na przyszlosc, zapisz ja od razu w `AGENTS.md` albo odpowiedniej dokumentacji procesu, o ile nie jest jednorazowa ani sprzeczna z nadrzednymi instrukcjami.
 
 ## Chrome Extension
 
