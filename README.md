@@ -197,7 +197,8 @@ UPLOAD_API_BASE_URL=http://localhost:3000 make build
 `make zip` - alias do `make package`
 `make shell` - otwiera powłokę w kontenerze buildowym
 `make clean` - usuwa wygenerowany `dist/`
-`make deps-clean` - usuwa wolumeny zależności/cache Docker Compose
+`make ci-clean` - usuwa kontenery i sieci Docker Compose bez kasowania wolumenów zależności/cache; używane przez CI
+`make deps-clean` - usuwa także wolumeny zależności/cache Docker Compose; używaj diagnostycznie, gdy trzeba odtworzyć zależności od zera
 
 ### Sentry
 

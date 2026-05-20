@@ -72,6 +72,7 @@ jobs:
       BUILDER_CPUS: "1.5"
       BUILDER_MEMORY_LIMIT: "1536m"
       BUILDER_NODE_OPTIONS: "--max-old-space-size=1024"
+      COMPOSE_PROJECT_NAME: extension-publish-${{ github.run_id }}-${{ github.run_attempt }}
     runs-on:
       - self-hosted
       - meet2note
@@ -95,8 +96,8 @@ jobs:
           if-no-files-found: error
 
       - name: Cleanup build environment
-        if: ${{ always() && !cancelled() }}
-        run: make ci-clean || true
+        if: always()
+        run: timeout 120s make ci-clean || true
 
   publish-to-meet2note:
     needs:

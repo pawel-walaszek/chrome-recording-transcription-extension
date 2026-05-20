@@ -15,6 +15,7 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 7. Pliki w `dist/` mają być tworzone z UID/GID użytkownika hosta, żeby można je było usuwać i przebudowywać bez naprawiania uprawnień.
 8. `dist/` jest wygenerowanym wynikiem builda i nie powinien być edytowany ręcznie.
 9. Kontener `builder` ma limit CPU, RAM i heap Node.js ustawiany przez zmienne `BUILDER_CPUS`, `BUILDER_MEMORY_LIMIT` oraz `BUILDER_NODE_OPTIONS`, żeby build CI nie zagłodził usług Meet2Note działających na tym samym hoście.
+10. CI ustawia per-run `COMPOSE_PROJECT_NAME`, żeby cleanup anulowanego runa sprzątał tylko własne kontenery i sieci Compose.
 
 ## Komendy
 
@@ -36,6 +37,7 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 5. `BUILDER_CPUS` domyślnie ogranicza kontener buildowy do `2` CPU.
 6. `BUILDER_MEMORY_LIMIT` domyślnie ogranicza kontener buildowy do `1536m`.
 7. `BUILDER_NODE_OPTIONS` domyślnie ustawia `--max-old-space-size=1024`.
+8. `COMPOSE_PROJECT_NAME` może zostać nadpisane w CI albo lokalnie, gdy kilka buildów ma działać równolegle bez współdzielenia kontenerów i sieci Compose.
 
 ## Walidacja przeglądarkowa
 
