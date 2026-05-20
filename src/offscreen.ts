@@ -6,7 +6,7 @@ import {
   Meet2NoteAuthError
 } from './extensionAuth'
 import type { MicPreferences } from './micPreferences'
-import { uploadRecordingOnce, type UploadRecordingInput } from './uploadClient'
+import { uploadRecordingOnce, type UploadRecordingInput, type UploadSessionState } from './uploadClient'
 import {
   generateRecordingLocalId,
   normalizeRecordingHistoryItem,
@@ -25,6 +25,7 @@ import {
   readSpoolAssetBlob,
   SPOOL_SCHEMA_VERSION,
   updateSpoolRecording,
+  type RecordingSpoolUploadSession,
   type RecordingSpoolRecord
 } from './recordingSpool'
 
@@ -124,6 +125,7 @@ function sleepUntilUploadQueueWakeOrTimeout(ms: number): Promise<void> {
 interface UploadQueueEntry extends RecordingHistoryItem {
   videoBlob: Blob
   microphoneBlob: Blob | null
+  uploadSession?: RecordingSpoolUploadSession | null
 }
 
 let uploadQueue: UploadQueueEntry[] = []
@@ -135,6 +137,7 @@ function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
   const {
     videoBlob: _videoBlob,
     microphoneBlob: _microphoneBlob,
+    uploadSession: _uploadSession,
     ...historyItem
   } = entry
   return historyItem
@@ -145,7 +148,8 @@ async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
     ...toHistoryItem(entry),
     schemaVersion: SPOOL_SCHEMA_VERSION,
     videoMimeType: entry.videoBlob.type || 'video/webm',
-    microphoneMimeType: entry.microphoneBlob?.type || null
+    microphoneMimeType: entry.microphoneBlob?.type || null,
+    uploadSession: entry.uploadSession ?? null
   })
   await persistHistoryItem(toHistoryItem(entry))
 }
@@ -504,6 +508,7 @@ function buildSpoolRecording(
     attempt: 0,
     nextRetryAt: null,
     backendRecordingId: null,
+    uploadSession: null,
     assets: microphoneEnabled ? ['video_audio', 'microphone'] : ['video_audio'],
     error: null,
     failureReason: null,
@@ -670,6 +675,7 @@ async function updateQueueEntry(
     'attempt' |
     'nextRetryAt' |
     'backendRecordingId' |
+    'uploadSession' |
     'assets' |
     'error' |
     'failureReason' |
@@ -766,7 +772,17 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
 
     try {
       const extensionToken = await requestMeet2NoteExtensionToken()
-      const result = await uploadRecordingOnce(uploadInputFromQueueEntry(entry), extensionToken, (progress) => {
+      const uploadInput: UploadRecordingInput = {
+        ...uploadInputFromQueueEntry(entry),
+        uploadSession: entry.uploadSession ?? null,
+        onUploadSession: async (session: UploadSessionState) => {
+          await updateQueueEntry(entry, 'uploading', {
+            backendRecordingId: session.recordingId,
+            uploadSession: session
+          })
+        }
+      }
+      const result = await uploadRecordingOnce(uploadInput, extensionToken, (progress) => {
         const percent = progress.totalBytes > 0
           ? Math.max(0, Math.min(100, Math.floor((progress.loadedBytes / progress.totalBytes) * 100)))
           : 0
