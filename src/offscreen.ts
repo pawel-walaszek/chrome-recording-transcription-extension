@@ -47,6 +47,13 @@ const ORPHANED_PENDING_UPLOAD_STATUSES: RecordingUploadStatus[] = [
   'uploading'
 ]
 
+class UnrecoverableLocalRecordingError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'UnrecoverableLocalRecordingError'
+  }
+}
+
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
   captureException(e?.error || e?.message, { operation: 'window.onerror' })
@@ -576,7 +583,9 @@ async function markCurrentSpoolLocalError(message: string): Promise<void> {
 
 async function uploadInputFromQueueEntry(entry: UploadQueueEntry): Promise<UploadRecordingInput> {
   const videoBlob = await readSpoolAssetBlob(entry.localId, 'video_audio', entry.videoMimeType)
-  if (!videoBlob || videoBlob.size === 0) throw new Error('Recording data is missing from the local spool.')
+  if (!videoBlob || videoBlob.size === 0) {
+    throw new UnrecoverableLocalRecordingError('Recording data is missing from the local spool.')
+  }
   const microphoneBlob = entry.assets.includes('microphone')
     ? await readSpoolAssetBlob(entry.localId, 'microphone', entry.microphoneMimeType || 'audio/webm')
     : null
@@ -778,6 +787,21 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
       log('Upload completed', { localId: entry.localId, recordingId: result.recordingId, assets: result.assets, attempt })
       return 'done'
     } catch (e) {
+      if (e instanceof UnrecoverableLocalRecordingError) {
+        acceptingProgressUpdates = false
+        await progressPersistQueue.catch(() => undefined)
+        await updateQueueEntry(entry, 'failed', {
+          error: e.message,
+          failureReason: 'unrecoverable',
+          nextRetryAt: null,
+          uploadProgressPercent: null
+        })
+        await cleanupTerminalSpoolEntry(entry.localId, 'uploadQueueEntryUntilTerminal.cleanupUnrecoverable')
+        removeQueueEntry(entry.localId)
+        log('Upload failed permanently because local recording data is missing', { localId: entry.localId, attempt })
+        return 'done'
+      }
+
       if (isMeet2NoteAuthError(e)) {
         acceptingProgressUpdates = false
         await progressPersistQueue.catch(() => undefined)

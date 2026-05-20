@@ -170,7 +170,7 @@ function backendRecordingToHistoryItem(recording: BackendRecordingListItem): Rec
     error: recording.status === 'failed' ? 'Processing failed in Meet2Note.' : null,
     failureReason: recording.status === 'failed' ? 'upload_error' : null,
     displayTimeline: recording.displayTimeline,
-    createdAt: recordedAt,
+    createdAt: recording.createdAt,
     updatedAt: recording.updatedAt || recording.createdAt
   }
 }
