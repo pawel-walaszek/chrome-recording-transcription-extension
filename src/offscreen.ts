@@ -15,11 +15,11 @@ import {
 } from './recordingHistory'
 import {
   appendSpoolChunk,
+  assertSpoolAvailable,
   createSpoolRecording,
   deleteSpoolChunks,
   deleteSpoolRecording,
   getSpoolChunkCounts,
-  getSpoolUsage,
   listInterruptedSpoolRecordings,
   listUploadableSpoolRecordings,
   readSpoolAssetBlob,
@@ -912,9 +912,9 @@ async function enqueueUpload(entry: UploadQueueEntry): Promise<void> {
 
 async function assertSpoolCapacityBeforeRecording(): Promise<void> {
   try {
-    await getSpoolUsage()
+    await assertSpoolAvailable()
   } catch (e) {
-    captureException(e, { operation: 'assertSpoolCapacityBeforeRecording.getSpoolUsage' })
+    captureException(e, { operation: 'assertSpoolCapacityBeforeRecording.assertSpoolAvailable' })
     throw new Error('Local recording storage is unavailable. Refresh the extension or free browser storage before starting another recording.')
   }
 
