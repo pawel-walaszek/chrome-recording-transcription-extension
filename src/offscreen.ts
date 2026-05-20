@@ -40,8 +40,6 @@ const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 const UPLOAD_RETRY_INTERVAL_MS = 15_000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
 const MICROPHONE_STOP_TIMEOUT_MS = 2_000
-const MAX_UPLOAD_QUEUE_ENTRIES = 3
-const MAX_UPLOAD_QUEUE_BYTES = 2 * 1024 * 1024 * 1024
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
 const INTERRUPTED_RECORDING_MESSAGE = 'Recording was interrupted before it could be finalized.'
 const ORPHANED_PENDING_UPLOAD_STATUSES: RecordingUploadStatus[] = [
@@ -696,44 +694,6 @@ function removeQueueEntry(localId: string): void {
   uploadQueue = uploadQueue.filter(entry => entry.localId !== localId)
 }
 
-function getQueueEntryBytes(entry: UploadQueueEntry): number {
-  return entry.videoBlob.size + (entry.microphoneBlob?.size || 0)
-}
-
-function getUploadQueueBytes(entries = uploadQueue): number {
-  return entries.reduce((total, entry) => total + getQueueEntryBytes(entry), 0)
-}
-
-async function rejectQueueEntryForMemoryLimit(entry: UploadQueueEntry): Promise<void> {
-  const now = new Date().toISOString()
-  const currentBytes = getUploadQueueBytes()
-  const entryBytes = getQueueEntryBytes(entry)
-  const message = 'Upload queue is full. Try again after active uploads finish.'
-  const failedEntry: UploadQueueEntry = {
-    ...entry,
-    status: 'failed',
-    error: message,
-    failureReason: 'local_error',
-    nextRetryAt: null,
-    updatedAt: now
-  }
-
-  await persistQueueEntry(failedEntry)
-  Object.assign(entry, failedEntry)
-  captureMessage(
-    'Upload queue rejected recording because memory limit was reached.',
-    'warning',
-    {
-      operation: 'enqueueUpload.memoryLimit',
-      queueEntries: uploadQueue.length,
-      queueBytes: currentBytes,
-      recordingBytes: entryBytes,
-      maxQueueEntries: MAX_UPLOAD_QUEUE_ENTRIES,
-      maxQueueBytes: MAX_UPLOAD_QUEUE_BYTES
-    }
-  )
-}
-
 function getNextReadyUploadQueueEntry(now: number): UploadQueueEntry | null {
   return uploadQueue.find((entry) => {
     if (entry.status === 'uploading') return true
@@ -775,9 +735,9 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
       const uploadInput: UploadRecordingInput = {
         ...uploadInputFromQueueEntry(entry),
         uploadSession: entry.uploadSession ?? null,
-        onUploadSession: async (session: UploadSessionState) => {
+        onUploadSession: async (session: UploadSessionState | null) => {
           await updateQueueEntry(entry, 'uploading', {
-            backendRecordingId: session.recordingId,
+            backendRecordingId: session?.recordingId ?? null,
             uploadSession: session
           })
         }
@@ -919,16 +879,6 @@ async function runUploadQueueWorker(): Promise<void> {
 }
 
 async function enqueueUpload(entry: UploadQueueEntry): Promise<void> {
-  const queuedBytes = getUploadQueueBytes()
-  const entryBytes = getQueueEntryBytes(entry)
-  if (
-    uploadQueue.length >= MAX_UPLOAD_QUEUE_ENTRIES ||
-    queuedBytes + entryBytes > MAX_UPLOAD_QUEUE_BYTES
-  ) {
-    await rejectQueueEntryForMemoryLimit(entry)
-    return
-  }
-
   uploadQueue.push(entry)
   await persistQueueEntry(entry)
   wakeUploadQueueWorker()
@@ -939,20 +889,17 @@ async function enqueueUpload(entry: UploadQueueEntry): Promise<void> {
 }
 
 async function assertSpoolCapacityBeforeRecording(): Promise<void> {
-  let usage: Awaited<ReturnType<typeof getSpoolUsage>>
   try {
-    usage = await getSpoolUsage()
+    await getSpoolUsage()
   } catch (e) {
     captureException(e, { operation: 'assertSpoolCapacityBeforeRecording.getSpoolUsage' })
     throw new Error('Local recording storage is unavailable. Refresh the extension or free browser storage before starting another recording.')
   }
-  if (usage.recordings >= MAX_UPLOAD_QUEUE_ENTRIES || usage.bytes >= MAX_UPLOAD_QUEUE_BYTES) {
-    throw new Error('Local recording storage is full. Wait for active uploads to finish before starting another recording.')
-  }
 
   try {
+    await navigator.storage?.persist?.()
     const estimate = await navigator.storage?.estimate?.()
-    if (estimate?.quota && estimate.usage && estimate.usage / estimate.quota > 0.9) {
+    if (estimate?.quota && estimate.usage && estimate.usage / estimate.quota > 0.95) {
       throw new Error('Browser storage is almost full. Free space before starting another recording.')
     }
   } catch (e) {

@@ -16,7 +16,7 @@ export const SPOOL_SCHEMA_VERSION = 1
 export interface RecordingSpoolUploadSession {
   recordingId: string
   uploadToken: string
-  expiresAt: string
+  expiresAt: string | null
   recommendedChunkSizeBytes?: number
   maxAssetSizeBytes?: number
 }
@@ -140,7 +140,7 @@ function normalizeUploadSession(value: unknown): RecordingSpoolUploadSession | n
   const expiresAt = record.expiresAt
   if (typeof recordingId !== 'string' || !recordingId) return null
   if (typeof uploadToken !== 'string' || !uploadToken) return null
-  if (typeof expiresAt !== 'string' || !expiresAt) return null
+  if (expiresAt !== null && (typeof expiresAt !== 'string' || !expiresAt)) return null
 
   return {
     recordingId,

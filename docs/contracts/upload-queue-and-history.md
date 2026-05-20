@@ -26,8 +26,9 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 1. Lokalna historia trzyma domyślnie 10 ostatnich pozycji terminalnych.
 2. Popup pokazuje 5 najnowszych pozycji.
 3. Pozycje nieterminalne nie powinny być usuwane przez limit historii, dopóki mają szansę na upload.
-4. Kolejka/spool mają twarde limity ochronne: 3 pozycje i 2 GiB łącznego rozmiaru.
-5. Po przekroczeniu limitu nowa pozycja powinna przejść w czytelny błąd lokalny, zamiast cicho znikać.
+4. Kolejka/spool nie mają arbitralnego limitu liczby pozycji ani stałego limitu łącznego rozmiaru po stronie rozszerzenia.
+5. Przed startem nagrania rozszerzenie sprawdza dostępność IndexedDB i szacowane użycie storage przeglądarki; jeśli przeglądarka raportuje prawie pełny storage, start ma zakończyć się czytelnym błędem lokalnym.
+6. Jeśli zapis chunków do IndexedDB nie powiedzie się w trakcie nagrywania, pozycja przechodzi w czytelny błąd lokalny, zamiast cicho znikać.
 
 ## Retry i błędy
 
