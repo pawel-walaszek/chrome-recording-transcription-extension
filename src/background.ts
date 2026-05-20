@@ -153,11 +153,12 @@ async function refreshRecentRecordingsFromBackend(): Promise<RecordingHistoryIte
 }
 
 function backendRecordingToHistoryItem(recording: BackendRecordingListItem): RecordingHistoryItem {
+  const recordedAt = recording.startedAt || recording.createdAt
   return {
     localId: `backend:${recording.id}`,
     status: recording.status,
     title: recording.title,
-    startedAt: recording.createdAt,
+    startedAt: recordedAt,
     stoppedAt: recording.updatedAt || recording.createdAt,
     durationMs: recording.durationMs ?? 0,
     videoBytes: 0,
@@ -169,7 +170,7 @@ function backendRecordingToHistoryItem(recording: BackendRecordingListItem): Rec
     error: recording.status === 'failed' ? 'Processing failed in Meet2Note.' : null,
     failureReason: recording.status === 'failed' ? 'upload_error' : null,
     displayTimeline: recording.displayTimeline,
-    createdAt: recording.createdAt,
+    createdAt: recordedAt,
     updatedAt: recording.updatedAt || recording.createdAt
   }
 }

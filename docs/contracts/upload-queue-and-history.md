@@ -71,3 +71,4 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 3. Po udanym uploadzie lokalny wpis przechodzi do `processing_queued`, dopóki backend nie zwróci dokładniejszego statusu.
 4. Błędy lokalne i konieczność reconnect są opisywane statusem `failed` oraz metadanym `failureReason`, a nie osobnymi statusami spoza kontraktu.
 5. Legacy statusy `queued`, `retrying`, `uploaded`, `pending`, `auth_required`, `local_error` i `failed_unrecoverable` muszą być mapowane do aktualnego kontraktu przy odczycie lokalnej historii.
+6. Popup nie powinien tłumaczyć `processing_queued` na `uploaded`; statusy backendowe mają być prezentowane kanonicznie, żeby nie rozjeżdżały się z widokiem webowym Meet2Note.
