@@ -38,6 +38,7 @@ export interface RecordingHistoryItem {
   assets: RecordingUploadAsset[]
   error: string | null
   failureReason: RecordingFailureReason | null
+  uploadProgressPercent?: number | null
   displayTimeline?: string
   createdAt: string
   updatedAt: string
@@ -148,6 +149,11 @@ function nullableNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function nullablePercent(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.max(0, Math.min(100, Math.floor(value)))
+}
+
 function sanitizeHistoryItem(value: unknown): RecordingHistoryItem | null {
   if (!value || typeof value !== 'object') return null
   const record = value as Record<string, unknown>
@@ -181,6 +187,7 @@ function sanitizeHistoryItem(value: unknown): RecordingHistoryItem | null {
     assets: sanitizeAssets(record.assets),
     error: nullableString(record.error),
     failureReason: status === 'failed' ? normalizeFailureReason(rawStatus, record.failureReason) : null,
+    uploadProgressPercent: status === 'uploading' ? nullablePercent(record.uploadProgressPercent) : null,
     displayTimeline: optionalString(record.displayTimeline),
     createdAt,
     updatedAt

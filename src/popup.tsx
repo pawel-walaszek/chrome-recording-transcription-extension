@@ -143,9 +143,25 @@ function getHistoryTimelineText(item: RecordingHistoryItem): string {
 function getHistoryTagColor(status: RecordingUploadStatus): string {
   if (status === 'ready') return 'success'
   if (status === 'failed') return 'error'
-  if (status === 'upload_queued' || status === 'processing_queued') return 'warning'
-  if (status === 'finalizing' || status === 'uploading' || status === 'processing') return 'processing'
+  if (status === 'upload_queued') return 'warning'
+  if (status === 'finalizing' ||
+    status === 'uploading' ||
+    status === 'processing_queued' ||
+    status === 'processing') return 'processing'
   return 'default'
+}
+
+function getHistoryTagText(item: RecordingHistoryItem): string {
+  if (item.status === 'uploading') {
+    return typeof item.uploadProgressPercent === 'number'
+      ? `uploading (${item.uploadProgressPercent}%)`
+      : 'uploading'
+  }
+
+  if (item.status === 'upload_queued') return 'queued'
+  if (item.status === 'processing_queued') return item.localId.startsWith('backend:') ? 'processing' : 'uploaded'
+  if (item.status === 'finalizing') return 'saving'
+  return item.status
 }
 
 function readPopupUiCache(): PopupUiCache {
@@ -706,7 +722,7 @@ function App(): React.ReactElement {
                         color={getHistoryTagColor(item.status)}
                         style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: '16px' }}
                       >
-                        {item.status}
+                        {getHistoryTagText(item)}
                       </Tag>
                     </Flex>
                     <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>

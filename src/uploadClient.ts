@@ -21,6 +21,14 @@ export interface UploadRecordingResult {
   assets: UploadAsset[]
 }
 
+export interface UploadProgress {
+  asset: UploadAsset
+  loadedBytes: number
+  totalBytes: number
+  assetLoadedBytes: number
+  assetTotalBytes: number
+}
+
 interface InitUploadResponse {
   recordingId: string
   uploadToken: string
@@ -119,24 +127,57 @@ async function uploadAsset(
   uploadToken: string,
   path: 'video' | 'microphone',
   blob: Blob,
-  authHeaders: { Authorization: string }
+  authHeaders: { Authorization: string },
+  onAssetProgress?: (loadedBytes: number) => void
 ): Promise<void> {
-  const response = await fetchWithTimeout(
-    `upload ${path}`,
-    makeMeet2NoteUrl(`/api/upload/${encodeURIComponent(recordingId)}/${path}`),
-    {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'X-Upload-Token': uploadToken,
-        ...authHeaders
-      },
-      body: blob
-    },
-    ASSET_UPLOAD_TIMEOUT_MS
-  )
+  await new Promise<void>((resolve, reject) => {
+    const operation = `upload ${path}`
+    const xhr = new XMLHttpRequest()
+    let settled = false
+    const timeoutId = setTimeout(() => {
+      if (settled) return
+      settled = true
+      try { xhr.abort() } catch {}
+      reject(new Error(`${operation} timed out after ${Math.round(ASSET_UPLOAD_TIMEOUT_MS / 1000)} seconds`))
+    }, ASSET_UPLOAD_TIMEOUT_MS)
 
-  if (!response.ok) throw httpError(`upload ${path}`, response)
+    const settle = (callback: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutId)
+      callback()
+    }
+
+    xhr.upload.onprogress = (event) => {
+      onAssetProgress?.(Math.min(blob.size, Math.max(0, event.loaded)))
+    }
+
+    xhr.onload = () => {
+      settle(() => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onAssetProgress?.(blob.size)
+          resolve()
+          return
+        }
+
+        reject(httpError(operation, new Response(null, { status: xhr.status })))
+      })
+    }
+
+    xhr.onerror = () => {
+      settle(() => reject(new Error(`${operation} failed with a network error`)))
+    }
+
+    xhr.onabort = () => {
+      settle(() => reject(new Error(`${operation} was aborted`)))
+    }
+
+    xhr.open('PUT', makeMeet2NoteUrl(`/api/upload/${encodeURIComponent(recordingId)}/${path}`))
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+    xhr.setRequestHeader('X-Upload-Token', uploadToken)
+    xhr.setRequestHeader('Authorization', authHeaders.Authorization)
+    xhr.send(blob)
+  })
 }
 
 async function completeUpload(
@@ -165,16 +206,48 @@ async function completeUpload(
 
 export async function uploadRecordingOnce(
   input: UploadRecordingInput,
-  extensionToken: string
+  extensionToken: string,
+  onProgress?: (progress: UploadProgress) => void
 ): Promise<UploadRecordingResult> {
   const authHeaders = await uploadAuthHeaders(extensionToken)
   const session = await initUpload(input, authHeaders)
   const assets: UploadAsset[] = ['video_audio']
+  const totalBytes = input.videoBlob.size + (input.microphoneBlob?.size || 0)
+  const loadedByAsset: Record<UploadAsset, number> = {
+    video_audio: 0,
+    microphone: 0
+  }
+  const reportProgress = (asset: UploadAsset, assetLoadedBytes: number, assetTotalBytes: number) => {
+    loadedByAsset[asset] = Math.min(assetTotalBytes, Math.max(0, assetLoadedBytes))
+    onProgress?.({
+      asset,
+      loadedBytes: loadedByAsset.video_audio + loadedByAsset.microphone,
+      totalBytes,
+      assetLoadedBytes: loadedByAsset[asset],
+      assetTotalBytes
+    })
+  }
 
-  await uploadAsset(session.recordingId, session.uploadToken, 'video', input.videoBlob, authHeaders)
+  reportProgress('video_audio', 0, input.videoBlob.size)
+  await uploadAsset(
+    session.recordingId,
+    session.uploadToken,
+    'video',
+    input.videoBlob,
+    authHeaders,
+    loadedBytes => reportProgress('video_audio', loadedBytes, input.videoBlob.size)
+  )
 
   if (input.microphoneBlob && input.microphoneBlob.size > 0) {
-    await uploadAsset(session.recordingId, session.uploadToken, 'microphone', input.microphoneBlob, authHeaders)
+    reportProgress('microphone', 0, input.microphoneBlob.size)
+    await uploadAsset(
+      session.recordingId,
+      session.uploadToken,
+      'microphone',
+      input.microphoneBlob,
+      authHeaders,
+      loadedBytes => reportProgress('microphone', loadedBytes, input.microphoneBlob!.size)
+    )
     assets.push('microphone')
   }
 
