@@ -1,16 +1,22 @@
 COMPOSE ?= docker compose
 HOST_UID ?= $(shell id -u)
 HOST_GID ?= $(shell id -g)
+BUILDER_CPUS ?= 2
+BUILDER_MEMORY_LIMIT ?= 1536m
+BUILDER_NODE_OPTIONS ?= --max-old-space-size=1024
 SENTRY_DSN ?= $(shell scripts/sentry-public-dsn.sh || true)
 SENTRY_ENVIRONMENT ?= chrome-extension-dev
 UPLOAD_API_BASE_URL ?= https://meet2note.com
 export HOST_UID
 export HOST_GID
+export BUILDER_CPUS
+export BUILDER_MEMORY_LIMIT
+export BUILDER_NODE_OPTIONS
 export SENTRY_DSN
 export SENTRY_ENVIRONMENT
 export UPLOAD_API_BASE_URL
 
-.PHONY: build check shell clean deps-clean prepare-deps package zip
+.PHONY: build check shell clean ci-clean deps-clean prepare-deps package zip
 
 build: prepare-deps
 	$(COMPOSE) run --rm builder ./node_modules/.bin/webpack --mode=production
@@ -28,6 +34,9 @@ shell: prepare-deps
 
 clean:
 	rm -rf dist
+
+ci-clean:
+	$(COMPOSE) down --remove-orphans
 
 deps-clean:
 	$(COMPOSE) down --volumes --remove-orphans
