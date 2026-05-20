@@ -231,8 +231,10 @@ export async function assertSpoolAvailable(): Promise<void> {
   const db = await openSpoolDb()
   const tx = db.transaction(RECORDINGS_STORE, 'readonly')
   const complete = transactionComplete(tx)
-  await requestResult<number>(tx.objectStore(RECORDINGS_STORE).count())
-  await complete
+  await Promise.all([
+    requestResult<number>(tx.objectStore(RECORDINGS_STORE).count()),
+    complete
+  ])
 }
 
 async function getChunksByIndex(localId: string, asset: RecordingUploadAsset): Promise<RecordingSpoolChunk[]> {

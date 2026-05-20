@@ -78,7 +78,7 @@ class Meet2NoteUploadHttpError extends Error {
     message: string,
     public readonly operation: string,
     public readonly status: number,
-    public readonly responseBody: string | null
+    public readonly detail: string | null
   ) {
     super(message)
     this.name = 'Meet2NoteUploadHttpError'
@@ -103,12 +103,12 @@ function normalizeErrorBody(body: string | null): string | null {
   return trimmed.slice(0, 500)
 }
 
-function httpErrorFromStatus(operation: string, status: number, responseBody: string | null = null): Error {
+function httpErrorFromStatus(operation: string, status: number, rawResponseBody: string | null = null): Error {
   if (status === 401 || status === 403) {
     return new Meet2NoteAuthError(`Meet2Note connection required for ${operation}.`, status)
   }
 
-  const detail = normalizeErrorBody(responseBody)
+  const detail = normalizeErrorBody(rawResponseBody)
   const suffix = detail ? `: ${detail}` : ''
   return new Meet2NoteUploadHttpError(
     `${operation} failed with HTTP ${status}${suffix}`,
