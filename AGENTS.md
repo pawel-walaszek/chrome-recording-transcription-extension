@@ -122,7 +122,7 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
    b) Jesli Copilot Code review jest wlaczony przez ruleset repozytorium, traktuj wypchniecie PR-a jako podstawowy trigger review; nie probuj dodawac `copilot-pull-request-reviewer` przez zwykle API review request, bo GitHub moze odrzucic to jako zwyklego collaboratora.
    c) Jesli review nie startuje automatycznie, uzyj dostepnego w UI GitHuba triggera Copilot review albo komentarza `@copilot review`, a potem sprawdz `gh pr view`/review threads.
    d) Poczekaj na wynik review Copilota, ale po jego otrzymaniu od razu przystap do analizy i poprawek; nie czekaj na zakonczenie CI, jesli review juz jest dostepne.
-   e) Do odwolania wykonuj tylko jedna runde PR/CR z Copilotem.
+   e) Po kazdym commicie wypchnietym do otwartego PR-a ponownie zawnioskuj o review Copilota, jesli repozytorium to obsluguje.
    f) Jesli Copilot zglosi techniczne uwagi, wdrazaj je wedlug wlasnej rekomendacji bez pytania czlowieka o kazda z nich.
    g) Pytaj czlowieka tylko wtedy, gdy uwaga jest trade-offem, moze zmienic zalozenia funkcjonalne albo wymaga decyzji produktowej.
    h) Jesli pytasz o uwage CR, podaj licznik w formacie `Pytanie X z Y` i wyjasnij kontekst szerzej niz jednym zdaniem.
@@ -139,14 +139,16 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 
 4. Kolejne rundy
    a) Po wdrozeniu zatwierdzonych przez czlowieka poprawek zrob commit i push.
-   b) Nie pros Copilota o ponowne review po wdrozeniu poprawek z jego rundy, chyba ze czlowiek wyraznie o to poprosi.
-   c) Po jednej rundzie CR i odpowiedzeniu na jej watki uznaj proces Copilot CR za zakonczony.
+   b) Po kazdym takim pushu uruchom kolejna runde review Copilota i sprawdz wynik thread-aware.
+   c) Powtarzaj rundy commit -> push -> Copilot review -> odpowiedzi/poprawki az Copilot nie zglosi nowych uwag.
+   d) Proces Copilot CR uznaj za zakonczony dopiero wtedy, gdy ostatnia runda nie ma uwag, a wszystkie wczesniejsze watki maja odpowiedz i sa resolved albo maja jawne wyjasnienie `not applying`/`unclear`.
 
 5. Wazne zasady
    a) Copilot jest reviewerem pomocniczym, nie decydentem.
    b) Decyzje techniczne podejmuj samodzielnie wedlug najlepszej rekomendacji, respektujac architekture projektu.
    c) Decyzje produktowe, trade-offy i zmiany zalozen funkcjonalnych nadal eskaluj do czlowieka.
    d) Jesli czlowiek koryguje sposob pracy agenta i wskazuje, ze zasada ma obowiazywac na przyszlosc, zapisz ja od razu w `AGENTS.md` albo odpowiedniej dokumentacji procesu, o ile nie jest jednorazowa ani sprzeczna z nadrzednymi instrukcjami.
+   e) Zmiany w plikach wytycznych dla agentow, takich jak `AGENTS.md` albo dokumentacja procesu dla agentow, commituj i pushuj od razu bez dodatkowego pytania, osobnym commitem bezposrednio do `main`.
 
 ## Chrome Extension
 
