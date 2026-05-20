@@ -168,7 +168,7 @@ async function parseInitResponse(response: Response): Promise<InitUploadResponse
 
   const recordingId = data.recordingId
   const uploadToken = data.uploadToken
-  const expiresAt = data.expiresAt
+  const expiresAt = data.expiresAt ?? null
   const uploadMode = data.uploadMode
 
   if (typeof recordingId !== 'string' || !recordingId) throw new Error('init upload missing recordingId')

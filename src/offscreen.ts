@@ -121,8 +121,9 @@ function sleepUntilUploadQueueWakeOrTimeout(ms: number): Promise<void> {
 }
 
 interface UploadQueueEntry extends RecordingHistoryItem {
-  videoBlob: Blob
-  microphoneBlob: Blob | null
+  schemaVersion: number
+  videoMimeType: string
+  microphoneMimeType: string | null
   uploadSession?: RecordingSpoolUploadSession | null
 }
 
@@ -133,8 +134,9 @@ let restoreUploadQueuePromise: Promise<void> | null = null
 
 function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
   const {
-    videoBlob: _videoBlob,
-    microphoneBlob: _microphoneBlob,
+    schemaVersion: _schemaVersion,
+    videoMimeType: _videoMimeType,
+    microphoneMimeType: _microphoneMimeType,
     uploadSession: _uploadSession,
     ...historyItem
   } = entry
@@ -144,9 +146,9 @@ function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
 async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
   await updateSpoolRecording({
     ...toHistoryItem(entry),
-    schemaVersion: SPOOL_SCHEMA_VERSION,
-    videoMimeType: entry.videoBlob.type || 'video/webm',
-    microphoneMimeType: entry.microphoneBlob?.type || null,
+    schemaVersion: entry.schemaVersion,
+    videoMimeType: entry.videoMimeType,
+    microphoneMimeType: entry.microphoneMimeType,
     uploadSession: entry.uploadSession ?? null
   })
   await persistHistoryItem(toHistoryItem(entry))
@@ -518,25 +520,14 @@ function buildSpoolRecording(
   }
 }
 
-function spoolRecordToQueueEntry(
-  record: RecordingSpoolRecord,
-  videoBlob: Blob,
-  microphoneBlob: Blob | null
-): UploadQueueEntry {
-  return {
-    ...record,
-    videoBlob,
-    microphoneBlob: microphoneBlob && microphoneBlob.size > 0 ? microphoneBlob : null
-  }
+function spoolRecordToQueueEntry(record: RecordingSpoolRecord): UploadQueueEntry {
+  return { ...record }
 }
 
 async function buildUploadQueueEntryFromSpool(record: RecordingSpoolRecord): Promise<UploadQueueEntry | null> {
-  const videoBlob = await readSpoolAssetBlob(record.localId, 'video_audio', record.videoMimeType)
-  if (!videoBlob || videoBlob.size === 0) return null
-  const microphoneBlob = record.assets.includes('microphone')
-    ? await readSpoolAssetBlob(record.localId, 'microphone', record.microphoneMimeType || 'audio/webm')
-    : null
-  return spoolRecordToQueueEntry(record, videoBlob, microphoneBlob)
+  const counts = await getSpoolChunkCounts(record.localId)
+  if (counts.video_audio <= 0) return null
+  return spoolRecordToQueueEntry(record)
 }
 
 async function markSpoolRecordFailedUnrecoverable(
@@ -583,15 +574,21 @@ async function markCurrentSpoolLocalError(message: string): Promise<void> {
   await cleanupTerminalSpoolEntry(localId, 'markCurrentSpoolLocalError.cleanup')
 }
 
-function uploadInputFromQueueEntry(entry: UploadQueueEntry): UploadRecordingInput {
+async function uploadInputFromQueueEntry(entry: UploadQueueEntry): Promise<UploadRecordingInput> {
+  const videoBlob = await readSpoolAssetBlob(entry.localId, 'video_audio', entry.videoMimeType)
+  if (!videoBlob || videoBlob.size === 0) throw new Error('Recording data is missing from the local spool.')
+  const microphoneBlob = entry.assets.includes('microphone')
+    ? await readSpoolAssetBlob(entry.localId, 'microphone', entry.microphoneMimeType || 'audio/webm')
+    : null
+
   return {
     title: entry.title,
     meetingId: entry.meetingId,
     meetingTitle: entry.meetingTitle,
     startedAt: entry.startedAt,
     durationMs: entry.durationMs,
-    videoBlob: entry.videoBlob,
-    microphoneBlob: entry.microphoneBlob
+    videoBlob,
+    microphoneBlob: microphoneBlob && microphoneBlob.size > 0 ? microphoneBlob : null
   }
 }
 
@@ -733,7 +730,7 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
     try {
       const extensionToken = await requestMeet2NoteExtensionToken()
       const uploadInput: UploadRecordingInput = {
-        ...uploadInputFromQueueEntry(entry),
+        ...(await uploadInputFromQueueEntry(entry)),
         uploadSession: entry.uploadSession ?? null,
         onUploadSession: async (session: UploadSessionState | null) => {
           await updateQueueEntry(entry, 'uploading', {
@@ -1337,7 +1334,7 @@ async function prepareAndRecord(
 
         const uploadEntry = await buildUploadQueueEntryFromSpool(currentSpoolRecord)
         if (!uploadEntry) throw new Error('Recording was finalized without video data in local spool.')
-        log('Finalizing; video blob.size =', uploadEntry.videoBlob.size, 'microphone blob.size =', uploadEntry.microphoneBlob?.size || 0)
+        log('Finalizing; video bytes =', uploadEntry.videoBytes, 'microphone bytes =', uploadEntry.microphoneBytes)
         void enqueueUpload(uploadEntry).catch((e) => {
           log('Unexpected upload queue enqueue failure', e)
           captureException(e, { operation: 'enqueueUpload.unhandled' })

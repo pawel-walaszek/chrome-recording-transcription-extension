@@ -137,7 +137,7 @@ function normalizeUploadSession(value: unknown): RecordingSpoolUploadSession | n
   const record = value as Record<string, unknown>
   const recordingId = record.recordingId
   const uploadToken = record.uploadToken
-  const expiresAt = record.expiresAt
+  const expiresAt = record.expiresAt ?? null
   if (typeof recordingId !== 'string' || !recordingId) return null
   if (typeof uploadToken !== 'string' || !uploadToken) return null
   if (expiresAt !== null && (typeof expiresAt !== 'string' || !expiresAt)) return null

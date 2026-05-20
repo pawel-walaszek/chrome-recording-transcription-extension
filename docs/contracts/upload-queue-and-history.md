@@ -20,6 +20,7 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 3. Lokalny spool jest czyszczony dopiero po potwierdzonym uploadzie albo po przejściu pozycji w terminalny stan lokalnego błędu.
 4. Po restarcie service workera zakończone pozycje uploadu powinny być odtwarzane z IndexedDB.
 5. Aktywne, niefinalizowane nagranie utracone razem z offscreen może zostać oznaczone jako `failed` z metadaną `failureReason: "unrecoverable"`.
+6. Kolejka uploadu trzyma w pamięci metadane pozycji, nie całe Bloby; assety są składane z IndexedDB dopiero na czas uploadu aktywnej pozycji.
 
 ## Limity
 
