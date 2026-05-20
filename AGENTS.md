@@ -120,12 +120,13 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 2. Review Copilota
    a) Popros o review Copilota, jesli repozytorium to obsluguje.
    b) Domyslnie wnioskuj o review przez `gh pr edit <PR> --add-reviewer @copilot`; nie dodawaj `copilot-pull-request-reviewer` przez zwykle API review request, bo GitHub moze odrzucic to jako zwyklego collaboratora.
-   c) Jesli CLI trigger nie zadziala, uzyj dostepnego w UI GitHuba triggera Copilot review; komentarz `@copilot review` traktuj tylko jako fallback, a potem sprawdz `gh pr view`/review threads.
-   d) Poczekaj na wynik review Copilota, ale po jego otrzymaniu od razu przystap do analizy i poprawek; nie czekaj na zakonczenie CI, jesli review juz jest dostepne.
-   e) Po kazdym commicie wypchnietym do otwartego PR-a ponownie zawnioskuj o review Copilota, jesli repozytorium to obsluguje.
-   f) Jesli Copilot zglosi techniczne uwagi, wdrazaj je wedlug wlasnej rekomendacji bez pytania czlowieka o kazda z nich.
-   g) Pytaj czlowieka tylko wtedy, gdy uwaga jest trade-offem, moze zmienic zalozenia funkcjonalne albo wymaga decyzji produktowej.
-   h) Jesli pytasz o uwage CR, podaj licznik w formacie `Pytanie X z Y` i wyjasnij kontekst szerzej niz jednym zdaniem.
+   c) Jesli CLI trigger nie zadziala, diagnozuj przez `gh`/GitHub API i thread-aware GraphQL; nie uruchamiaj przegladarki ani UI GitHuba do obslugi repozytorium, PR, review albo CI, chyba ze czlowiek wyraznie poprosi o prace w UI.
+   d) Komentarz `@copilot review` traktuj tylko jako fallback, a potem sprawdz `gh pr view`/review threads przez API.
+   e) Poczekaj na wynik review Copilota, ale po jego otrzymaniu od razu przystap do analizy i poprawek; nie czekaj na zakonczenie CI, jesli review juz jest dostepne.
+   f) Po kazdym commicie wypchnietym do otwartego PR-a ponownie zawnioskuj o review Copilota, jesli repozytorium to obsluguje.
+   g) Jesli Copilot zglosi techniczne uwagi, wdrazaj je wedlug wlasnej rekomendacji bez pytania czlowieka o kazda z nich.
+   h) Pytaj czlowieka tylko wtedy, gdy uwaga jest trade-offem, moze zmienic zalozenia funkcjonalne albo wymaga decyzji produktowej.
+   i) Jesli pytasz o uwage CR, podaj licznik w formacie `Pytanie X z Y` i wyjasnij kontekst szerzej niz jednym zdaniem.
 
 3. Odpowiedzi do review
    a) Na kazda uwage Copilota odpowiedz w watku:
@@ -149,6 +150,7 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
    c) Decyzje produktowe, trade-offy i zmiany zalozen funkcjonalnych nadal eskaluj do czlowieka.
    d) Jesli czlowiek koryguje sposob pracy agenta i wskazuje, ze zasada ma obowiazywac na przyszlosc, zapisz ja od razu w `AGENTS.md` albo odpowiedniej dokumentacji procesu, o ile nie jest jednorazowa ani sprzeczna z nadrzednymi instrukcjami.
    e) Zmiany w plikach wytycznych dla agentow, takich jak `AGENTS.md` albo dokumentacja procesu dla agentow, commituj i pushuj od razu bez dodatkowego pytania, osobnym commitem bezposrednio do `main`.
+   f) Operacje GitHub wykonuj przez MCP GitHub, `gh` albo GitHub API. Nie uzywaj przegladarki do sprawdzania ani obslugi GitHuba, chyba ze czlowiek wyraznie poprosi o prace w UI.
 
 ## Chrome Extension
 
