@@ -296,6 +296,16 @@ function resolveChunkSize(session: UploadSessionState, blob: Blob): number {
   return Math.max(1, Math.min(blob.size, MAX_CHUNK_SIZE_BYTES, chunkSize))
 }
 
+function assertAssetSizeAllowed(session: UploadSessionState, asset: UploadAsset, blob: Blob): void {
+  const maxAssetSizeBytes = session.maxAssetSizeBytes
+  if (typeof maxAssetSizeBytes !== 'number' || !Number.isFinite(maxAssetSizeBytes) || maxAssetSizeBytes <= 0) return
+  if (blob.size <= maxAssetSizeBytes) return
+
+  throw new Error(
+    `${asset} asset is ${blob.size} bytes, which exceeds Meet2Note upload limit of ${maxAssetSizeBytes} bytes`
+  )
+}
+
 function expectedChunkSize(blob: Blob, chunkSizeBytes: number, chunkIndex: number, totalChunks: number): number {
   if (chunkIndex === totalChunks - 1) {
     return blob.size - chunkSizeBytes * (totalChunks - 1)
@@ -486,6 +496,7 @@ async function uploadAssetChunks(
   authHeaders: { Authorization: string },
   reportProgress: (asset: UploadAsset, assetLoadedBytes: number, assetTotalBytes: number) => void
 ): Promise<void> {
+  assertAssetSizeAllowed(session, asset, blob)
   const chunkSizeBytes = resolveChunkSize(session, blob)
   const initialized = await initAsset(session, asset, blob, chunkSizeBytes, authHeaders)
   const state = initialized.status === 'complete'

@@ -810,6 +810,7 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
       await progressPersistQueue.catch(() => undefined)
       await updateQueueEntry(entry, 'processing_queued', {
         backendRecordingId: result.recordingId,
+        uploadSession: null,
         assets: result.assets,
         nextRetryAt: null,
         error: null,
