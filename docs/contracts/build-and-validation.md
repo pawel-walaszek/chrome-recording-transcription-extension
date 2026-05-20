@@ -14,6 +14,8 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 6. `npm ci` jest jedynym wspieranym sposobem instalacji zależności w buildzie; zależności muszą wynikać z `package-lock.json`.
 7. Pliki w `dist/` mają być tworzone z UID/GID użytkownika hosta, żeby można je było usuwać i przebudowywać bez naprawiania uprawnień.
 8. `dist/` jest wygenerowanym wynikiem builda i nie powinien być edytowany ręcznie.
+9. Kontener `builder` ma limit CPU, RAM i heap Node.js ustawiany przez zmienne `BUILDER_CPUS`, `BUILDER_MEMORY_LIMIT` oraz `BUILDER_NODE_OPTIONS`, żeby build CI nie zagłodził usług Meet2Note działających na tym samym hoście.
+10. CI ustawia per-run `COMPOSE_PROJECT_NAME`, żeby cleanup anulowanego runa sprzątał tylko własne kontenery i sieci Compose.
 
 ## Komendy
 
@@ -23,7 +25,8 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 4. `make zip` jest aliasem do `make package`.
 5. `make shell` otwiera powłokę w kontenerze buildowym.
 6. `make clean` usuwa tylko wygenerowany katalog `dist/`.
-7. `make deps-clean` usuwa wolumeny zależności/cache i jest operacją diagnostyczną przy problemach z zależnościami.
+7. `make ci-clean` usuwa kontenery i sieci Compose bez kasowania wolumenów zależności/cache; to domyślne sprzątanie po CI.
+8. `make deps-clean` usuwa wolumeny zależności/cache i jest operacją diagnostyczną przy problemach z zależnościami.
 
 ## Konfiguracja builda
 
@@ -31,6 +34,10 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 2. `SENTRY_DSN` jest opcjonalny; jeśli nie jest ustawiony, diagnostyka Sentry nie powinna blokować builda.
 3. `SENTRY_ENVIRONMENT` domyślnie opisuje build deweloperski rozszerzenia.
 4. `HOST_UID` i `HOST_GID` są wyliczane z hosta, ale mogą zostać nadpisane z zewnątrz.
+5. `BUILDER_CPUS` domyślnie ogranicza kontener buildowy do `2` CPU.
+6. `BUILDER_MEMORY_LIMIT` domyślnie ogranicza kontener buildowy do `1536m`.
+7. `BUILDER_NODE_OPTIONS` domyślnie ustawia `--max-old-space-size=1024`.
+8. `COMPOSE_PROJECT_NAME` może zostać nadpisane w CI albo lokalnie, gdy kilka buildów ma działać równolegle bez współdzielenia kontenerów i sieci Compose.
 
 ## Walidacja przeglądarkowa
 

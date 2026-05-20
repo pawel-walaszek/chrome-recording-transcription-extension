@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   detect-version-bump:
+    timeout-minutes: 5
     runs-on:
       - self-hosted
       - meet2note
@@ -66,6 +67,12 @@ jobs:
   build-package:
     needs: detect-version-bump
     if: needs.detect-version-bump.outputs.should_publish == 'true'
+    timeout-minutes: 20
+    env:
+      BUILDER_CPUS: "1.5"
+      BUILDER_MEMORY_LIMIT: "1536m"
+      BUILDER_NODE_OPTIONS: "--max-old-space-size=1024"
+      COMPOSE_PROJECT_NAME: extension-publish-${{ github.run_id }}-${{ github.run_attempt }}
     runs-on:
       - self-hosted
       - meet2note
@@ -90,13 +97,14 @@ jobs:
 
       - name: Cleanup build environment
         if: always()
-        run: make deps-clean || true
+        run: timeout 120s make ci-clean || true
 
   publish-to-meet2note:
     needs:
       - detect-version-bump
       - build-package
     if: needs.detect-version-bump.outputs.should_publish == 'true'
+    timeout-minutes: 10
     runs-on:
       - self-hosted
       - meet2note

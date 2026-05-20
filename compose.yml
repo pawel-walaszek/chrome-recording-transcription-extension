@@ -6,10 +6,13 @@ services:
     environment:
       HOST_UID: "${HOST_UID:-1000}"
       HOST_GID: "${HOST_GID:-1000}"
+      NODE_OPTIONS: "${BUILDER_NODE_OPTIONS:---max-old-space-size=1024}"
       SENTRY_DSN: "${SENTRY_DSN:-}"
       SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-chrome-extension-dev}"
       UPLOAD_API_BASE_URL: "${UPLOAD_API_BASE_URL:-https://meet2note.com}"
       npm_config_cache: /home/node/.npm
+    cpus: "${BUILDER_CPUS:-2}"
+    mem_limit: "${BUILDER_MEMORY_LIMIT:-1536m}"
     volumes:
       - ./package.json:/workspace/package.json:ro
       - ./package-lock.json:/workspace/package-lock.json:ro
