@@ -119,8 +119,8 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 
 2. Review Copilota
    a) Popros o review Copilota, jesli repozytorium to obsluguje.
-   b) Jesli Copilot Code review jest wlaczony przez ruleset repozytorium, traktuj wypchniecie PR-a jako podstawowy trigger review; nie probuj dodawac `copilot-pull-request-reviewer` przez zwykle API review request, bo GitHub moze odrzucic to jako zwyklego collaboratora.
-   c) Jesli review nie startuje automatycznie, uzyj dostepnego w UI GitHuba triggera Copilot review albo komentarza `@copilot review`, a potem sprawdz `gh pr view`/review threads.
+   b) Domyslnie wnioskuj o review przez `gh pr edit <PR> --add-reviewer @copilot`; nie dodawaj `copilot-pull-request-reviewer` przez zwykle API review request, bo GitHub moze odrzucic to jako zwyklego collaboratora.
+   c) Jesli CLI trigger nie zadziala, uzyj dostepnego w UI GitHuba triggera Copilot review; komentarz `@copilot review` traktuj tylko jako fallback, a potem sprawdz `gh pr view`/review threads.
    d) Poczekaj na wynik review Copilota, ale po jego otrzymaniu od razu przystap do analizy i poprawek; nie czekaj na zakonczenie CI, jesli review juz jest dostepne.
    e) Po kazdym commicie wypchnietym do otwartego PR-a ponownie zawnioskuj o review Copilota, jesli repozytorium to obsluguje.
    f) Jesli Copilot zglosi techniczne uwagi, wdrazaj je wedlug wlasnej rekomendacji bez pytania czlowieka o kazda z nich.
