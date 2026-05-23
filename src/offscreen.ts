@@ -215,14 +215,17 @@ async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
     })
   }
 
+  const historyItem = toHistoryItem(entry)
   await updateSpoolRecording({
-    ...toHistoryItem(entry),
+    ...historyItem,
     schemaVersion: entry.schemaVersion,
     videoMimeType: entry.videoMimeType,
     microphoneMimeType: entry.microphoneMimeType,
     uploadSession: entry.uploadSession ?? null
   })
-  await persistHistoryItem(toHistoryItem(entry))
+
+  const syncItem = await queueRecordingStateSync(historyItem) ?? historyItem
+  await persistHistoryItem(syncItem, { syncState: false })
 }
 
 let activeStreams = new Set<MediaStream>()
@@ -869,8 +872,10 @@ async function runRecordingStateSyncWorker(): Promise<void> {
       for (const [recordingId, item] of Array.from(recordingStateSyncQueue.entries())) {
         try {
           const result = await syncExtensionRecordingState(item, extensionToken)
-          recordingStateSyncQueue.delete(recordingId)
-          await markRecordingStateSynced(item, result.recordingId)
+          if (recordingStateSyncQueue.get(recordingId) === item) {
+            recordingStateSyncQueue.delete(recordingId)
+            await markRecordingStateSynced(item, result.recordingId)
+          }
         } catch (e) {
           if (isMeet2NoteAuthError(e)) {
             await chrome.runtime.sendMessage({
