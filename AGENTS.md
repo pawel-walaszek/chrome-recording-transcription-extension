@@ -124,10 +124,12 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
    c) Jesli CLI trigger nie zadziala, diagnozuj przez `gh`/GitHub API i thread-aware GraphQL; nie uruchamiaj przegladarki ani UI GitHuba do obslugi repozytorium, PR, review albo CI, chyba ze czlowiek wyraznie poprosi o prace w UI.
    d) Komentarz `@copilot review` traktuj tylko jako fallback, a potem sprawdz `gh pr view`/review threads przez API.
    e) Poczekaj na wynik review Copilota, ale po jego otrzymaniu od razu przystap do analizy i poprawek; nie czekaj na zakonczenie CI, jesli review juz jest dostepne.
-   f) Po kazdym commicie wypchnietym do otwartego PR-a ponownie zawnioskuj o review Copilota, jesli repozytorium to obsluguje.
-   g) Jesli Copilot zglosi techniczne uwagi, wdrazaj je wedlug wlasnej rekomendacji bez pytania czlowieka o kazda z nich.
-   h) Pytaj czlowieka tylko wtedy, gdy uwaga jest trade-offem, moze zmienic zalozenia funkcjonalne albo wymaga decyzji produktowej.
-   i) Jesli pytasz o uwage CR, podaj licznik w formacie `Pytanie X z Y` i wyjasnij kontekst szerzej niz jednym zdaniem.
+   f) Brak nowego review Copilota po request/comment nie oznacza braku uwag; oznacza, ze review sie nie wykonalo albo nie zostalo zwrocone przez API.
+   g) Jesli po rozsadnym czasie nie ma nowego review Copilota dla aktualnego commita, ponow prosbe o review przez `gh pr edit <PR> --add-reviewer @copilot`, fallback `@copilot review`, albo inny dostepny mechanizm, az pojawi sie nowe review dla aktualnego commita albo jawny blad.
+   h) Po kazdym commicie wypchnietym do otwartego PR-a ponownie zawnioskuj o review Copilota, jesli repozytorium to obsluguje.
+   i) Jesli Copilot zglosi techniczne uwagi, wdrazaj je wedlug wlasnej rekomendacji bez pytania czlowieka o kazda z nich.
+   j) Pytaj czlowieka tylko wtedy, gdy uwaga jest trade-offem, moze zmienic zalozenia funkcjonalne albo wymaga decyzji produktowej.
+   k) Jesli pytasz o uwage CR, podaj licznik w formacie `Pytanie X z Y` i wyjasnij kontekst szerzej niz jednym zdaniem.
 
 3. Odpowiedzi do review
    a) Na kazda uwage Copilota odpowiedz w watku:
@@ -142,8 +144,8 @@ Gdy czlowiek napisze `+PR`, uruchom lokalna procedure pracy z Pull Requestem.
 4. Kolejne rundy
    a) Po wdrozeniu zatwierdzonych przez czlowieka poprawek zrob commit i push.
    b) Po kazdym takim pushu uruchom kolejna runde review Copilota i sprawdz wynik thread-aware.
-   c) Powtarzaj rundy commit -> push -> Copilot review -> odpowiedzi/poprawki az Copilot nie zglosi nowych uwag.
-   d) Proces Copilot CR uznaj za zakonczony dopiero wtedy, gdy ostatnia runda nie ma uwag, a wszystkie wczesniejsze watki maja odpowiedz i sa resolved albo maja jawne wyjasnienie `not applying`/`unclear`.
+   c) Powtarzaj rundy commit -> push -> Copilot review -> odpowiedzi/poprawki az Copilot rzeczywiscie wykona review aktualnego commita i nie zglosi nowych uwag.
+   d) Proces Copilot CR uznaj za zakonczony dopiero wtedy, gdy ostatnia runda ma jawne review Copilota dla aktualnego commita bez nowych uwag, a wszystkie wczesniejsze watki maja odpowiedz i sa resolved albo maja jawne wyjasnienie `not applying`/`unclear`.
 
 5. Wazne zasady
    a) Copilot jest reviewerem pomocniczym, nie decydentem.
