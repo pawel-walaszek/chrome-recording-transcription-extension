@@ -153,11 +153,12 @@ async function refreshRecentRecordingsFromBackend(): Promise<RecordingHistoryIte
 }
 
 function backendRecordingToHistoryItem(recording: BackendRecordingListItem): RecordingHistoryItem {
+  const recordedAt = recording.startedAt || recording.createdAt
   return {
     localId: `backend:${recording.id}`,
     status: recording.status,
     title: recording.title,
-    startedAt: recording.createdAt,
+    startedAt: recordedAt,
     stoppedAt: recording.updatedAt || recording.createdAt,
     durationMs: recording.durationMs ?? 0,
     videoBytes: 0,

@@ -43,15 +43,16 @@ Ten opis dokumentuje aktualne ustalenia integracyjne między wtyczką i backende
 1. Rozszerzenie przechodzi flow `GET /extension/connect`, a callback wymienia jednorazowy `code` przez `POST /api/extension/token`.
 2. Długotrwały `extensionToken` jest zapisywany w `chrome.storage.local` i wysyłany jako `Authorization: Bearer <extensionToken>`.
 3. Rozszerzenie inicjuje upload przez `POST /api/upload/init`.
-4. Backend zwraca `recordingId`, `uploadToken` oraz `expiresAt`.
-5. Rozszerzenie wysyła główny asset `video_audio` przez `PUT /api/upload/{recordingId}/video`.
-6. Jeśli mikrofon jest dostępny, rozszerzenie wysyła osobny asset `microphone` przez `PUT /api/upload/{recordingId}/microphone`.
-7. Każdy upload assetu używa nagłówków `Authorization` oraz `X-Upload-Token`.
-8. Rozszerzenie kończy upload przez `POST /api/upload/{recordingId}/complete`.
-9. Chunks nagrania trafiają do trwałego spoolu IndexedDB już podczas nagrywania, a zakończone nagrania są uploadowane sekwencyjnie.
-10. Jeśli upload się nie powiedzie, offscreen ponawia pełny upload konkretnej pozycji co 15 sekund, bez lokalnego zapisu pliku.
-11. Jeśli backend zwróci `401` albo `403`, zwykły retry tej pozycji jest przerywany, token jest czyszczony i popup wymaga ponownego połączenia z Meet2Note.
-12. Popup scala lokalną historię kolejki z listą nagrań z backendu, jeśli konto jest połączone z Meet2Note.
+4. Backend zwraca `recordingId`, `uploadToken`, opcjonalne `expiresAt`, `recommendedChunkSizeBytes` oraz `maxAssetSizeBytes`.
+5. Rozszerzenie inicjalizuje każdy asset przez `PUT /api/upload/{recordingId}/assets/{asset}`.
+6. Rozszerzenie wysyła brakujące chunki przez `PUT /api/upload/{recordingId}/assets/{asset}/chunks/{chunkIndex}`.
+7. Po chunkach rozszerzenie kończy asset przez `POST /api/upload/{recordingId}/assets/{asset}/complete`.
+8. Każdy request uploadu używa nagłówków `Authorization` oraz `X-Upload-Token`.
+9. Rozszerzenie kończy upload przez `POST /api/upload/{recordingId}/complete`.
+10. Chunks nagrania trafiają do trwałego spoolu IndexedDB już podczas nagrywania, a zakończone nagrania są uploadowane sekwencyjnie.
+11. Jeśli upload się nie powiedzie, offscreen ponawia upload konkretnej pozycji co 15 sekund i wznawia sesję backendową, jeśli nadal jest używalna.
+12. Jeśli backend zwróci `401` albo `403`, zwykły retry tej pozycji jest przerywany, token jest czyszczony i popup wymaga ponownego połączenia z Meet2Note.
+13. Popup scala lokalną historię kolejki z listą nagrań z backendu, jeśli konto jest połączone z Meet2Note.
 
 ## Granice uruchomieniowe
 

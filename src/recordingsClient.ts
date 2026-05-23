@@ -11,6 +11,7 @@ export interface BackendRecordingListItem {
   title: string
   status: BackendRecordingStatus
   durationMs: number | null
+  startedAt: string | null
   createdAt: string
   updatedAt: string
   displayTimeline?: string
@@ -51,6 +52,7 @@ function parseBackendRecording(value: unknown): BackendRecordingListItem | null 
   const id = typeof record.id === 'string' ? record.id.trim() : ''
   const title = typeof record.title === 'string' ? record.title.trim() : ''
   const status = normalizeBackendRecordingStatus(record.status)
+  const startedAtRaw = typeof record.startedAt === 'string' ? record.startedAt.trim() : ''
   const createdAt = typeof record.createdAt === 'string' ? record.createdAt.trim() : ''
   const updatedAtRaw = typeof record.updatedAt === 'string' ? record.updatedAt.trim() : ''
   const updatedAt = updatedAtRaw || createdAt
@@ -65,6 +67,7 @@ function parseBackendRecording(value: unknown): BackendRecordingListItem | null 
     durationMs: typeof record.durationMs === 'number' && Number.isFinite(record.durationMs)
       ? record.durationMs
       : null,
+    startedAt: startedAtRaw || null,
     createdAt,
     updatedAt,
     ...(displayTimeline ? { displayTimeline } : {})

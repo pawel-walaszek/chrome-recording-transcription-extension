@@ -16,7 +16,7 @@ export const SPOOL_SCHEMA_VERSION = 1
 export interface RecordingSpoolUploadSession {
   recordingId: string
   uploadToken: string
-  expiresAt: string
+  expiresAt: string | null
   recommendedChunkSizeBytes?: number
   maxAssetSizeBytes?: number
 }
@@ -137,10 +137,10 @@ function normalizeUploadSession(value: unknown): RecordingSpoolUploadSession | n
   const record = value as Record<string, unknown>
   const recordingId = record.recordingId
   const uploadToken = record.uploadToken
-  const expiresAt = record.expiresAt
+  const expiresAt = record.expiresAt ?? null
   if (typeof recordingId !== 'string' || !recordingId) return null
   if (typeof uploadToken !== 'string' || !uploadToken) return null
-  if (typeof expiresAt !== 'string' || !expiresAt) return null
+  if (expiresAt !== null && (typeof expiresAt !== 'string' || !expiresAt)) return null
 
   return {
     recordingId,
@@ -227,6 +227,16 @@ export async function listInterruptedSpoolRecordings(): Promise<RecordingSpoolRe
   return records.filter(record => record.status === 'recording' || record.status === 'finalizing')
 }
 
+export async function assertSpoolAvailable(): Promise<void> {
+  const db = await openSpoolDb()
+  const tx = db.transaction(RECORDINGS_STORE, 'readonly')
+  const complete = transactionComplete(tx)
+  await Promise.all([
+    requestResult<number>(tx.objectStore(RECORDINGS_STORE).count()),
+    complete
+  ])
+}
+
 async function getChunksByIndex(localId: string, asset: RecordingUploadAsset): Promise<RecordingSpoolChunk[]> {
   const db = await openSpoolDb()
   const tx = db.transaction(CHUNKS_STORE, 'readonly')
@@ -235,6 +245,13 @@ async function getChunksByIndex(localId: string, asset: RecordingUploadAsset): P
     index.getAll(localIdAsset(localId, asset))
   )
   return chunks.sort((a, b) => a.sequence - b.sequence)
+}
+
+async function countChunksByIndex(localId: string, asset: RecordingUploadAsset): Promise<number> {
+  const db = await openSpoolDb()
+  const tx = db.transaction(CHUNKS_STORE, 'readonly')
+  const index = tx.objectStore(CHUNKS_STORE).index(ASSET_INDEX)
+  return requestResult<number>(index.count(localIdAsset(localId, asset)))
 }
 
 export async function readSpoolAssetBlob(
@@ -250,12 +267,12 @@ export async function readSpoolAssetBlob(
 
 export async function getSpoolChunkCounts(localId: string): Promise<Record<RecordingUploadAsset, number>> {
   const [videoChunks, microphoneChunks] = await Promise.all([
-    getChunksByIndex(localId, 'video_audio'),
-    getChunksByIndex(localId, 'microphone')
+    countChunksByIndex(localId, 'video_audio'),
+    countChunksByIndex(localId, 'microphone')
   ])
   return {
-    video_audio: videoChunks.length,
-    microphone: microphoneChunks.length
+    video_audio: videoChunks,
+    microphone: microphoneChunks
   }
 }
 

@@ -15,11 +15,11 @@ import {
 } from './recordingHistory'
 import {
   appendSpoolChunk,
+  assertSpoolAvailable,
   createSpoolRecording,
   deleteSpoolChunks,
   deleteSpoolRecording,
   getSpoolChunkCounts,
-  getSpoolUsage,
   listInterruptedSpoolRecordings,
   listUploadableSpoolRecordings,
   readSpoolAssetBlob,
@@ -40,14 +40,20 @@ const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 const UPLOAD_RETRY_INTERVAL_MS = 15_000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
 const MICROPHONE_STOP_TIMEOUT_MS = 2_000
-const MAX_UPLOAD_QUEUE_ENTRIES = 3
-const MAX_UPLOAD_QUEUE_BYTES = 2 * 1024 * 1024 * 1024
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
 const INTERRUPTED_RECORDING_MESSAGE = 'Recording was interrupted before it could be finalized.'
+const STORAGE_ALMOST_FULL_MESSAGE = 'Browser storage is almost full. Free space before starting another recording.'
 const ORPHANED_PENDING_UPLOAD_STATUSES: RecordingUploadStatus[] = [
   'upload_queued',
   'uploading'
 ]
+
+class UnrecoverableLocalRecordingError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'UnrecoverableLocalRecordingError'
+  }
+}
 
 window.addEventListener('error', (e) => {
   console.error('[offscreen] window.onerror', e?.message, e?.error)
@@ -123,8 +129,9 @@ function sleepUntilUploadQueueWakeOrTimeout(ms: number): Promise<void> {
 }
 
 interface UploadQueueEntry extends RecordingHistoryItem {
-  videoBlob: Blob
-  microphoneBlob: Blob | null
+  schemaVersion: number
+  videoMimeType: string
+  microphoneMimeType: string | null
   uploadSession?: RecordingSpoolUploadSession | null
 }
 
@@ -135,8 +142,9 @@ let restoreUploadQueuePromise: Promise<void> | null = null
 
 function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
   const {
-    videoBlob: _videoBlob,
-    microphoneBlob: _microphoneBlob,
+    schemaVersion: _schemaVersion,
+    videoMimeType: _videoMimeType,
+    microphoneMimeType: _microphoneMimeType,
     uploadSession: _uploadSession,
     ...historyItem
   } = entry
@@ -146,9 +154,9 @@ function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
 async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
   await updateSpoolRecording({
     ...toHistoryItem(entry),
-    schemaVersion: SPOOL_SCHEMA_VERSION,
-    videoMimeType: entry.videoBlob.type || 'video/webm',
-    microphoneMimeType: entry.microphoneBlob?.type || null,
+    schemaVersion: entry.schemaVersion,
+    videoMimeType: entry.videoMimeType,
+    microphoneMimeType: entry.microphoneMimeType,
     uploadSession: entry.uploadSession ?? null
   })
   await persistHistoryItem(toHistoryItem(entry))
@@ -520,25 +528,14 @@ function buildSpoolRecording(
   }
 }
 
-function spoolRecordToQueueEntry(
-  record: RecordingSpoolRecord,
-  videoBlob: Blob,
-  microphoneBlob: Blob | null
-): UploadQueueEntry {
-  return {
-    ...record,
-    videoBlob,
-    microphoneBlob: microphoneBlob && microphoneBlob.size > 0 ? microphoneBlob : null
-  }
+function spoolRecordToQueueEntry(record: RecordingSpoolRecord): UploadQueueEntry {
+  return { ...record }
 }
 
 async function buildUploadQueueEntryFromSpool(record: RecordingSpoolRecord): Promise<UploadQueueEntry | null> {
-  const videoBlob = await readSpoolAssetBlob(record.localId, 'video_audio', record.videoMimeType)
-  if (!videoBlob || videoBlob.size === 0) return null
-  const microphoneBlob = record.assets.includes('microphone')
-    ? await readSpoolAssetBlob(record.localId, 'microphone', record.microphoneMimeType || 'audio/webm')
-    : null
-  return spoolRecordToQueueEntry(record, videoBlob, microphoneBlob)
+  const counts = await getSpoolChunkCounts(record.localId)
+  if (counts.video_audio <= 0) return null
+  return spoolRecordToQueueEntry(record)
 }
 
 async function markSpoolRecordFailedUnrecoverable(
@@ -585,15 +582,23 @@ async function markCurrentSpoolLocalError(message: string): Promise<void> {
   await cleanupTerminalSpoolEntry(localId, 'markCurrentSpoolLocalError.cleanup')
 }
 
-function uploadInputFromQueueEntry(entry: UploadQueueEntry): UploadRecordingInput {
+async function uploadInputFromQueueEntry(entry: UploadQueueEntry): Promise<UploadRecordingInput> {
+  const videoBlob = await readSpoolAssetBlob(entry.localId, 'video_audio', entry.videoMimeType)
+  if (!videoBlob || videoBlob.size === 0) {
+    throw new UnrecoverableLocalRecordingError('Recording data is missing from the local spool.')
+  }
+  const microphoneBlob = entry.assets.includes('microphone')
+    ? await readSpoolAssetBlob(entry.localId, 'microphone', entry.microphoneMimeType || 'audio/webm')
+    : null
+
   return {
     title: entry.title,
     meetingId: entry.meetingId,
     meetingTitle: entry.meetingTitle,
     startedAt: entry.startedAt,
     durationMs: entry.durationMs,
-    videoBlob: entry.videoBlob,
-    microphoneBlob: entry.microphoneBlob
+    videoBlob,
+    microphoneBlob: microphoneBlob && microphoneBlob.size > 0 ? microphoneBlob : null
   }
 }
 
@@ -696,44 +701,6 @@ function removeQueueEntry(localId: string): void {
   uploadQueue = uploadQueue.filter(entry => entry.localId !== localId)
 }
 
-function getQueueEntryBytes(entry: UploadQueueEntry): number {
-  return entry.videoBlob.size + (entry.microphoneBlob?.size || 0)
-}
-
-function getUploadQueueBytes(entries = uploadQueue): number {
-  return entries.reduce((total, entry) => total + getQueueEntryBytes(entry), 0)
-}
-
-async function rejectQueueEntryForMemoryLimit(entry: UploadQueueEntry): Promise<void> {
-  const now = new Date().toISOString()
-  const currentBytes = getUploadQueueBytes()
-  const entryBytes = getQueueEntryBytes(entry)
-  const message = 'Upload queue is full. Try again after active uploads finish.'
-  const failedEntry: UploadQueueEntry = {
-    ...entry,
-    status: 'failed',
-    error: message,
-    failureReason: 'local_error',
-    nextRetryAt: null,
-    updatedAt: now
-  }
-
-  await persistQueueEntry(failedEntry)
-  Object.assign(entry, failedEntry)
-  captureMessage(
-    'Upload queue rejected recording because memory limit was reached.',
-    'warning',
-    {
-      operation: 'enqueueUpload.memoryLimit',
-      queueEntries: uploadQueue.length,
-      queueBytes: currentBytes,
-      recordingBytes: entryBytes,
-      maxQueueEntries: MAX_UPLOAD_QUEUE_ENTRIES,
-      maxQueueBytes: MAX_UPLOAD_QUEUE_BYTES
-    }
-  )
-}
-
 function getNextReadyUploadQueueEntry(now: number): UploadQueueEntry | null {
   return uploadQueue.find((entry) => {
     if (entry.status === 'uploading') return true
@@ -773,11 +740,11 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
     try {
       const extensionToken = await requestMeet2NoteExtensionToken()
       const uploadInput: UploadRecordingInput = {
-        ...uploadInputFromQueueEntry(entry),
+        ...(await uploadInputFromQueueEntry(entry)),
         uploadSession: entry.uploadSession ?? null,
-        onUploadSession: async (session: UploadSessionState) => {
+        onUploadSession: async (session: UploadSessionState | null) => {
           await updateQueueEntry(entry, 'uploading', {
-            backendRecordingId: session.recordingId,
+            backendRecordingId: session?.recordingId ?? null,
             uploadSession: session
           })
         }
@@ -821,6 +788,21 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
       log('Upload completed', { localId: entry.localId, recordingId: result.recordingId, assets: result.assets, attempt })
       return 'done'
     } catch (e) {
+      if (e instanceof UnrecoverableLocalRecordingError) {
+        acceptingProgressUpdates = false
+        await progressPersistQueue.catch(() => undefined)
+        await updateQueueEntry(entry, 'failed', {
+          error: e.message,
+          failureReason: 'unrecoverable',
+          nextRetryAt: null,
+          uploadProgressPercent: null
+        })
+        await cleanupTerminalSpoolEntry(entry.localId, 'uploadQueueEntryUntilTerminal.cleanupUnrecoverable')
+        removeQueueEntry(entry.localId)
+        log('Upload failed permanently because local recording data is missing', { localId: entry.localId, attempt })
+        return 'done'
+      }
+
       if (isMeet2NoteAuthError(e)) {
         acceptingProgressUpdates = false
         await progressPersistQueue.catch(() => undefined)
@@ -919,16 +901,6 @@ async function runUploadQueueWorker(): Promise<void> {
 }
 
 async function enqueueUpload(entry: UploadQueueEntry): Promise<void> {
-  const queuedBytes = getUploadQueueBytes()
-  const entryBytes = getQueueEntryBytes(entry)
-  if (
-    uploadQueue.length >= MAX_UPLOAD_QUEUE_ENTRIES ||
-    queuedBytes + entryBytes > MAX_UPLOAD_QUEUE_BYTES
-  ) {
-    await rejectQueueEntryForMemoryLimit(entry)
-    return
-  }
-
   uploadQueue.push(entry)
   await persistQueueEntry(entry)
   wakeUploadQueueWorker()
@@ -939,24 +911,22 @@ async function enqueueUpload(entry: UploadQueueEntry): Promise<void> {
 }
 
 async function assertSpoolCapacityBeforeRecording(): Promise<void> {
-  let usage: Awaited<ReturnType<typeof getSpoolUsage>>
   try {
-    usage = await getSpoolUsage()
+    await assertSpoolAvailable()
   } catch (e) {
-    captureException(e, { operation: 'assertSpoolCapacityBeforeRecording.getSpoolUsage' })
+    captureException(e, { operation: 'assertSpoolCapacityBeforeRecording.assertSpoolAvailable' })
     throw new Error('Local recording storage is unavailable. Refresh the extension or free browser storage before starting another recording.')
-  }
-  if (usage.recordings >= MAX_UPLOAD_QUEUE_ENTRIES || usage.bytes >= MAX_UPLOAD_QUEUE_BYTES) {
-    throw new Error('Local recording storage is full. Wait for active uploads to finish before starting another recording.')
   }
 
   try {
+    await navigator.storage?.persist?.()
     const estimate = await navigator.storage?.estimate?.()
-    if (estimate?.quota && estimate.usage && estimate.usage / estimate.quota > 0.9) {
-      throw new Error('Browser storage is almost full. Free space before starting another recording.')
+    if (estimate?.quota && estimate.usage && estimate.usage / estimate.quota > 0.95) {
+      throw new Error(STORAGE_ALMOST_FULL_MESSAGE)
     }
   } catch (e) {
-    if (e instanceof Error) throw e
+    if (e instanceof Error && e.message === STORAGE_ALMOST_FULL_MESSAGE) throw e
+    captureException(e, { operation: 'assertSpoolCapacityBeforeRecording.storageEstimate' })
   }
 }
 
@@ -1390,7 +1360,7 @@ async function prepareAndRecord(
 
         const uploadEntry = await buildUploadQueueEntryFromSpool(currentSpoolRecord)
         if (!uploadEntry) throw new Error('Recording was finalized without video data in local spool.')
-        log('Finalizing; video blob.size =', uploadEntry.videoBlob.size, 'microphone blob.size =', uploadEntry.microphoneBlob?.size || 0)
+        log('Finalizing; video bytes =', uploadEntry.videoBytes, 'microphone bytes =', uploadEntry.microphoneBytes)
         void enqueueUpload(uploadEntry).catch((e) => {
           log('Unexpected upload queue enqueue failure', e)
           captureException(e, { operation: 'enqueueUpload.unhandled' })

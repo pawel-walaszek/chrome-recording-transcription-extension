@@ -159,7 +159,6 @@ function getHistoryTagText(item: RecordingHistoryItem): string {
   }
 
   if (item.status === 'upload_queued') return 'queued'
-  if (item.status === 'processing_queued') return item.localId.startsWith('backend:') ? 'processing' : 'uploaded'
   if (item.status === 'finalizing') return 'saving'
   return item.status
 }

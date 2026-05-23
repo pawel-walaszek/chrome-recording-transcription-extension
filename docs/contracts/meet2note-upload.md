@@ -31,10 +31,12 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
    d) `startedAt`,
    e) `durationMs`.
 3. Backend zwraca `recordingId`, `uploadToken`, `expiresAt`, `uploadMode`, `recommendedChunkSizeBytes` i `maxAssetSizeBytes`.
+   a) `expiresAt` może być `null`; oznacza to upload session bez znanego terminu wygaśnięcia.
 4. Docelowy `uploadMode` to `chunked`; rozszerzenie nie używa legacy endpointów `/video` ani `/microphone`.
 5. Dla każdego assetu rozszerzenie inicjalizuje metadane przez `PUT /api/upload/{recordingId}/assets/{asset}`.
    a) `asset` to `video_audio` albo `microphone`.
    b) Body zawiera `contentType`, `sizeBytes`, `chunkSizeBytes` i `totalChunks`.
+   c) `chunkSizeBytes` musi być dodatnią liczbą całkowitą i nie może przekraczać limitu backendu, obecnie 32 MiB; dla assetów mniejszych niż rekomendowany rozmiar chunka rozszerzenie używa rozmiaru assetu i `totalChunks: 1`.
 6. Przed wysyłką brakujących chunków albo po błędzie rozszerzenie pobiera stan assetu przez `GET /api/upload/{recordingId}/assets/{asset}`.
    a) Backend zwraca między innymi `receivedChunks` i `receivedBytes`.
    b) Rozszerzenie wysyła tylko chunki, których backend jeszcze nie przyjął.
@@ -66,6 +68,7 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 5. Błędy sieciowe i HTTP trafiają do istniejącej diagnostyki bez sekretów i bez zawartości nagrań.
 6. `401` albo `403` oznacza konieczność ponownego połączenia z Meet2Note.
 7. Po `401` albo `403` rozszerzenie czyści lokalny token, oznacza odpowiednią pozycję jako wymagającą reconnect i nie ponawia zwykłego uploadu bez końca.
+8. Jeśli zapisany `uploadSession` zwróci `404`, rozszerzenie traktuje go jako nieaktualny, czyści tylko sesję backendową i zakłada nową sesję dla tego samego lokalnego nagrania.
 
 ## Uprawnienia Chrome
 

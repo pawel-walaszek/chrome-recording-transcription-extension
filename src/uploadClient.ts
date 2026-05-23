@@ -9,7 +9,7 @@ export type UploadAsset = 'video_audio' | 'microphone'
 export interface UploadSessionState {
   recordingId: string
   uploadToken: string
-  expiresAt: string
+  expiresAt: string | null
   recommendedChunkSizeBytes?: number
   maxAssetSizeBytes?: number
 }
@@ -23,7 +23,7 @@ export interface UploadRecordingInput {
   videoBlob: Blob
   microphoneBlob?: Blob | null
   uploadSession?: UploadSessionState | null
-  onUploadSession?: (session: UploadSessionState) => void | Promise<void>
+  onUploadSession?: (session: UploadSessionState | null) => void | Promise<void>
 }
 
 export interface UploadRecordingResult {
@@ -73,11 +73,61 @@ const DEFAULT_CHUNK_SIZE_BYTES = 16 * 1024 * 1024
 const MAX_CHUNK_SIZE_BYTES = 32 * 1024 * 1024
 const SESSION_EXPIRY_SKEW_MS = 60_000
 
-function httpError(operation: string, response: Response): Error {
-  if (response.status === 401 || response.status === 403) {
-    return new Meet2NoteAuthError(`Meet2Note connection required for ${operation}.`, response.status)
+class Meet2NoteUploadHttpError extends Error {
+  constructor(
+    message: string,
+    public readonly operation: string,
+    public readonly status: number,
+    public readonly detail: string | null
+  ) {
+    super(message)
+    this.name = 'Meet2NoteUploadHttpError'
   }
-  return new Error(`${operation} failed with HTTP ${response.status}`)
+}
+
+function normalizeErrorBody(body: string | null): string | null {
+  if (!body) return null
+  const trimmed = body.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (parsed && typeof parsed === 'object') {
+      const record = parsed as Record<string, unknown>
+      const message = record.message
+      const error = record.error
+      if (Array.isArray(message)) return message.map(String).join('; ').slice(0, 500)
+      if (typeof message === 'string' && message.trim()) return message.trim().slice(0, 500)
+      if (typeof error === 'string' && error.trim()) return error.trim().slice(0, 500)
+    }
+  } catch {}
+  return trimmed.slice(0, 500)
+}
+
+function httpErrorFromStatus(operation: string, status: number, rawResponseBody: string | null = null): Error {
+  if (status === 401 || status === 403) {
+    return new Meet2NoteAuthError(`Meet2Note connection required for ${operation}.`, status)
+  }
+
+  const detail = normalizeErrorBody(rawResponseBody)
+  const suffix = detail ? `: ${detail}` : ''
+  return new Meet2NoteUploadHttpError(
+    `${operation} failed with HTTP ${status}${suffix}`,
+    operation,
+    status,
+    detail
+  )
+}
+
+async function httpError(operation: string, response: Response): Promise<Error> {
+  if (response.status === 401 || response.status === 403) {
+    return httpErrorFromStatus(operation, response.status)
+  }
+  const body = await response.text().catch(() => null)
+  return httpErrorFromStatus(operation, response.status, body)
+}
+
+function isStaleUploadSessionError(error: unknown): boolean {
+  return error instanceof Meet2NoteUploadHttpError && error.status === 404
 }
 
 async function fetchWithTimeout(
@@ -121,12 +171,14 @@ async function parseInitResponse(response: Response): Promise<InitUploadResponse
 
   const recordingId = data.recordingId
   const uploadToken = data.uploadToken
-  const expiresAt = data.expiresAt
+  const expiresAt = data.expiresAt ?? null
   const uploadMode = data.uploadMode
 
   if (typeof recordingId !== 'string' || !recordingId) throw new Error('init upload missing recordingId')
   if (typeof uploadToken !== 'string' || !uploadToken) throw new Error('init upload missing uploadToken')
-  if (typeof expiresAt !== 'string' || !expiresAt) throw new Error('init upload missing expiresAt')
+  if (expiresAt !== null && (typeof expiresAt !== 'string' || !expiresAt)) {
+    throw new Error('init upload returned invalid expiresAt')
+  }
   if (uploadMode !== undefined && uploadMode !== 'chunked') {
     throw new Error(`unsupported upload mode: ${String(uploadMode)}`)
   }
@@ -237,7 +289,9 @@ async function uploadAuthHeaders(extensionToken: string): Promise<{ Authorizatio
 }
 
 function isUsableSession(session: UploadSessionState | null | undefined): session is UploadSessionState {
-  if (!session?.recordingId || !session.uploadToken || !session.expiresAt) return false
+  if (!session?.recordingId || !session.uploadToken) return false
+  if (session.expiresAt === null) return true
+  if (typeof session.expiresAt !== 'string' || !session.expiresAt) return false
   const expiresAtMs = Date.parse(session.expiresAt)
   return Number.isFinite(expiresAtMs) && expiresAtMs > Date.now() + SESSION_EXPIRY_SKEW_MS
 }
@@ -269,7 +323,7 @@ async function initUpload(
     INIT_UPLOAD_TIMEOUT_MS
   )
 
-  if (!response.ok) throw httpError('init upload', response)
+  if (!response.ok) throw await httpError('init upload', response)
   return parseInitResponse(response)
 }
 
@@ -350,7 +404,7 @@ async function initAsset(
     ASSET_METADATA_TIMEOUT_MS
   )
 
-  if (!response.ok) throw httpError(operation, response)
+  if (!response.ok) throw await httpError(operation, response)
   return parseAssetState(response, operation)
 }
 
@@ -373,7 +427,7 @@ async function getAssetState(
     ASSET_METADATA_TIMEOUT_MS
   )
 
-  if (!response.ok) throw httpError(operation, response)
+  if (!response.ok) throw await httpError(operation, response)
   return parseAssetState(response, operation)
 }
 
@@ -410,7 +464,7 @@ async function uploadChunk(
     xhr.onload = () => {
       settle(() => {
         if (xhr.status < 200 || xhr.status >= 300) {
-          reject(httpError(operation, new Response(null, { status: xhr.status })))
+          reject(httpErrorFromStatus(operation, xhr.status, xhr.responseText))
           return
         }
 
@@ -462,7 +516,7 @@ async function completeAsset(
     ASSET_COMPLETE_TIMEOUT_MS
   )
 
-  if (!response.ok) throw httpError(operation, response)
+  if (!response.ok) throw await httpError(operation, response)
   return parseAssetState(response, operation)
 }
 
@@ -486,7 +540,7 @@ async function completeUpload(
     COMPLETE_UPLOAD_TIMEOUT_MS
   )
 
-  if (!response.ok) throw httpError('complete upload', response)
+  if (!response.ok) throw await httpError('complete upload', response)
 }
 
 async function uploadAssetChunks(
@@ -539,7 +593,7 @@ async function uploadAssetChunks(
   reportProgress(asset, blob.size, blob.size)
 }
 
-export async function uploadRecordingOnce(
+async function uploadRecordingWithSession(
   input: UploadRecordingInput,
   extensionToken: string,
   onProgress?: (progress: UploadProgress) => void
@@ -575,5 +629,22 @@ export async function uploadRecordingOnce(
   return {
     recordingId: session.recordingId,
     assets
+  }
+}
+
+export async function uploadRecordingOnce(
+  input: UploadRecordingInput,
+  extensionToken: string,
+  onProgress?: (progress: UploadProgress) => void
+): Promise<UploadRecordingResult> {
+  try {
+    return await uploadRecordingWithSession(input, extensionToken, onProgress)
+  } catch (error) {
+    if (!input.uploadSession || !isStaleUploadSessionError(error)) throw error
+    await input.onUploadSession?.(null)
+    return uploadRecordingWithSession({
+      ...input,
+      uploadSession: null
+    }, extensionToken, onProgress)
   }
 }

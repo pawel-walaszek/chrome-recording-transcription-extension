@@ -20,14 +20,16 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 3. Lokalny spool jest czyszczony dopiero po potwierdzonym uploadzie albo po przejściu pozycji w terminalny stan lokalnego błędu.
 4. Po restarcie service workera zakończone pozycje uploadu powinny być odtwarzane z IndexedDB.
 5. Aktywne, niefinalizowane nagranie utracone razem z offscreen może zostać oznaczone jako `failed` z metadaną `failureReason: "unrecoverable"`.
+6. Kolejka uploadu trzyma w pamięci metadane pozycji, nie całe Bloby; assety są składane z IndexedDB dopiero na czas uploadu aktywnej pozycji.
 
 ## Limity
 
 1. Lokalna historia trzyma domyślnie 10 ostatnich pozycji terminalnych.
 2. Popup pokazuje 5 najnowszych pozycji.
 3. Pozycje nieterminalne nie powinny być usuwane przez limit historii, dopóki mają szansę na upload.
-4. Kolejka/spool mają twarde limity ochronne: 3 pozycje i 2 GiB łącznego rozmiaru.
-5. Po przekroczeniu limitu nowa pozycja powinna przejść w czytelny błąd lokalny, zamiast cicho znikać.
+4. Kolejka/spool nie mają arbitralnego limitu liczby pozycji ani stałego limitu łącznego rozmiaru po stronie rozszerzenia.
+5. Przed startem nagrania rozszerzenie sprawdza dostępność IndexedDB i szacowane użycie storage przeglądarki; jeśli przeglądarka raportuje prawie pełny storage, start ma zakończyć się czytelnym błędem lokalnym.
+6. Jeśli zapis chunków do IndexedDB nie powiedzie się w trakcie nagrywania, pozycja przechodzi w czytelny błąd lokalny, zamiast cicho znikać.
 
 ## Retry i błędy
 
@@ -69,3 +71,4 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 3. Po udanym uploadzie lokalny wpis przechodzi do `processing_queued`, dopóki backend nie zwróci dokładniejszego statusu.
 4. Błędy lokalne i konieczność reconnect są opisywane statusem `failed` oraz metadanym `failureReason`, a nie osobnymi statusami spoza kontraktu.
 5. Legacy statusy `queued`, `retrying`, `uploaded`, `pending`, `auth_required`, `local_error` i `failed_unrecoverable` muszą być mapowane do aktualnego kontraktu przy odczycie lokalnej historii.
+6. Popup nie powinien tłumaczyć `processing_queued` na `uploaded`; statusy backendowe mają być prezentowane kanonicznie, żeby nie rozjeżdżały się z widokiem webowym Meet2Note.
