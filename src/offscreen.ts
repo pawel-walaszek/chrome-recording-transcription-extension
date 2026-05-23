@@ -778,6 +778,7 @@ async function queueRecordingStateSync(item: RecordingHistoryItem): Promise<Reco
 
   if (syncItem.backendRecordingId !== normalizedItem.backendRecordingId) {
     await storeGeneratedBackendRecordingId(syncItem)
+    await persistHistoryItem(syncItem, { syncState: false })
   }
 
   recordingStateSyncQueue.set(recordingId, syncItem)
@@ -793,8 +794,6 @@ async function markRecordingStateSynced(
   item: RecordingHistoryItem,
   recordingId: string
 ): Promise<void> {
-  if (item.backendRecordingId === recordingId) return
-
   const updatedItem: RecordingHistoryItem = {
     ...item,
     backendRecordingId: recordingId
@@ -855,7 +854,12 @@ async function runRecordingStateSyncWorker(): Promise<void> {
       try {
         extensionToken = await requestMeet2NoteExtensionToken()
       } catch (e) {
-        if (!isMeet2NoteAuthError(e)) {
+        if (isMeet2NoteAuthError(e)) {
+          await chrome.runtime.sendMessage({
+            type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
+            message: e.message
+          }).catch(() => {})
+        } else {
           captureException(e, { operation: 'runRecordingStateSyncWorker.auth' })
         }
         return
