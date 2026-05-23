@@ -30,6 +30,7 @@ let recordingStopping = false
 let currentRecordingTabId: number | null = null
 let autoStopMeetTabId: number | null = null
 let recordingStartedAt: number | null = null
+let lastRecordingError: string | null = null
 const meetTabsInMeeting = new Set<number>()
 let recentRecordings: RecordingHistoryItem[] = []
 let backendRecordings: RecordingHistoryItem[] = []
@@ -40,6 +41,14 @@ const BACKEND_RECORDINGS_REFRESH_THROTTLE_MS = 15_000
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 const DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS = 15_000
 const STOP_OFFSCREEN_RESPONSE_TIMEOUT_MS = 3_000
+type CaptureSource = 'tab' | 'desktop'
+
+interface CaptureStreamRequest {
+  streamId: string
+  captureSource: CaptureSource
+  canRequestAudioTrack: boolean
+}
+
 function bglog(...a: any[]) { console.log('[background]', ...a) }
 function setBadge(recording: boolean, tabId?: number | null) {
   const details: chrome.action.BadgeTextDetails = { text: recording ? 'REC' : '' }
@@ -104,7 +113,8 @@ function persistRecordingState(recording: boolean, startedAt: number | null): vo
       recordingStarting,
       recordingStartingTabId,
       recordingStartRequestedAt,
-      recordingStopping
+      recordingStopping,
+      lastRecordingError
     })?.catch?.(() => {})
   } catch {}
 }
@@ -118,6 +128,7 @@ function broadcastRecordingState(extra?: Record<string, unknown>): void {
     startingTabId: recordingStartingTabId,
     startRequestedAt: recordingStartRequestedAt,
     stopping: recordingStopping,
+    error: lastRecordingError,
     ...extra
   }).catch(() => {})
 }
@@ -126,6 +137,13 @@ function setRecordingStarting(starting: boolean, tabId: number | null = null): v
   recordingStarting = starting
   recordingStartingTabId = starting ? tabId : null
   recordingStartRequestedAt = starting ? Date.now() : null
+  if (starting) lastRecordingError = null
+  persistRecordingState(lastKnownRecording, recordingStartedAt)
+  broadcastRecordingState()
+}
+
+function setLastRecordingError(error: unknown): void {
+  lastRecordingError = getErrorMessage(error) || 'Recording could not start.'
   persistRecordingState(lastKnownRecording, recordingStartedAt)
   broadcastRecordingState()
 }
@@ -298,7 +316,8 @@ function hasPendingLocalUpload(items = recentRecordings): boolean {
   return items.some(item =>
     item.status === 'upload_queued' ||
     item.status === 'uploading' ||
-    (item.status === 'failed' && item.failureReason === 'auth_required') ||
+    (item.status === 'failed' && (item.failureReason === 'auth_required' || !item.backendRecordingId)) ||
+    (item.status === 'canceled' && !item.backendRecordingId) ||
     item.status === 'recording' ||
     item.status === 'finalizing'
   )
@@ -505,6 +524,11 @@ function postToOffscreen(msg: any, timeoutMs = DEFAULT_OFFSCREEN_RESPONSE_TIMEOU
   })
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return `${error || ''}`
+}
+
 function isRecoverableOffscreenStartFailure(error: unknown): boolean {
   const message = `${error || ''}`
   return message.includes('Offscreen response timeout') ||
@@ -512,15 +536,57 @@ function isRecoverableOffscreenStartFailure(error: unknown): boolean {
     message.includes('Cannot capture a tab with an active stream')
 }
 
+function shouldFallbackToDesktopCapture(error: unknown): boolean {
+  const message = getErrorMessage(error)
+  if (!message) return false
+  if (message.includes('Screen/tab selection was canceled')) return false
+  if (message.includes('Already recording')) return false
+  if (message.includes('Recording is still stopping')) return false
+  return message.includes('OFFSCREEN_START') ||
+    message.includes('tabCapture') ||
+    message.includes('getMediaStreamId') ||
+    message.includes('getUserMedia') ||
+    message.includes('Could not start') ||
+    message.includes('Permission denied') ||
+    message.includes('NotAllowedError') ||
+    message.includes('NotReadableError') ||
+    message.includes('No video track') ||
+    message.includes('media stream') ||
+    message.includes('capture')
+}
+
 // Helper streamId po stronie tła.
-function getStreamIdForTab(tabId: number): Promise<string> {
+function getStreamIdForTab(tabId: number): Promise<CaptureStreamRequest> {
   return new Promise((resolve, reject) => {
     try {
-      chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id?: string) => {
+      chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (streamId?: string) => {
         const err = chrome.runtime.lastError
         if (err) return reject(new Error(err.message))
-        if (!id) return reject(new Error('Empty streamId'))
-        resolve(id)
+        if (!streamId) return reject(new Error('Empty streamId'))
+        resolve({
+          streamId,
+          captureSource: 'tab',
+          canRequestAudioTrack: true
+        })
+      })
+    } catch (e) {
+      reject(e as any)
+    }
+  })
+}
+
+function chooseDesktopStream(): Promise<CaptureStreamRequest> {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.desktopCapture.chooseDesktopMedia(['tab', 'audio'], (streamId, options) => {
+        const err = chrome.runtime.lastError
+        if (err) return reject(new Error(err.message))
+        if (!streamId) return reject(new Error('Screen/tab selection was canceled.'))
+        resolve({
+          streamId,
+          captureSource: 'desktop',
+          canRequestAudioTrack: options?.canRequestAudioTrack !== false
+        })
       })
     } catch (e) {
       reject(e as any)
@@ -623,16 +689,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       setRecordingStarting(true, tabId)
 
       try {
-        const start = async () => {
+        const start = async (captureRequestFactory: () => Promise<CaptureStreamRequest>) => {
           await ensureOffscreen()
           bglog('ensureOffscreen() completed')
 
-          const streamId = await getStreamIdForTab(tabId)
+          const captureRequest = await captureRequestFactory()
           const micPreferences = await getMicPreferencesForOffscreen()
           const tab = await chrome.tabs.get(tabId).catch(() => null)
           const r = await postToOffscreen({
             type: 'OFFSCREEN_START',
-            streamId,
+            streamId: captureRequest.streamId,
+            captureSource: captureRequest.captureSource,
+            canRequestAudioTrack: captureRequest.canRequestAudioTrack,
             micPreferences,
             recordingContext: {
               tabUrl: tab?.url || null,
@@ -643,23 +711,41 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           return r
         }
 
-        const startWithRecovery = async () => {
-          const first = await start()
+        const startWithRecovery = async (captureRequestFactory: () => Promise<CaptureStreamRequest>) => {
+          const first = await start(captureRequestFactory)
           if (first?.ok !== false || !isRecoverableOffscreenStartFailure(first?.error)) return first
 
           bglog('OFFSCREEN_START returned recoverable error; resetting offscreen and retrying once', first?.error)
           await resetOffscreen()
-          return await start()
+          return await start(captureRequestFactory)
         }
 
         let r: any
+        let tabCaptureFailure: unknown = null
         try {
-          r = await startWithRecovery()
+          r = await startWithRecovery(() => getStreamIdForTab(tabId))
         } catch (e: any) {
-          if (!isRecoverableOffscreenStartFailure(e?.message || e)) throw e
-          bglog('OFFSCREEN_START failed with recoverable transport error; resetting offscreen and retrying once')
+          tabCaptureFailure = e
+          if (!isRecoverableOffscreenStartFailure(e?.message || e)) {
+            r = { ok: false, error: e?.message || String(e) }
+          } else {
+            bglog('OFFSCREEN_START failed with recoverable transport error; resetting offscreen and retrying once')
+            await resetOffscreen()
+            try {
+              r = await start(() => getStreamIdForTab(tabId))
+            } catch (retryError: any) {
+              tabCaptureFailure = retryError
+              r = { ok: false, error: retryError?.message || String(retryError) }
+            }
+          }
+        }
+
+        if (r?.ok === false) tabCaptureFailure = r.error
+        if (r?.ok === false && shouldFallbackToDesktopCapture(tabCaptureFailure)) {
+          bglog('Tab capture failed; falling back to desktop capture picker', tabCaptureFailure)
           await resetOffscreen()
-          r = await start()
+          setRecordingStarting(true, tabId)
+          r = await startWithRecovery(chooseDesktopStream)
         }
 
         if (r?.ok) {
@@ -678,6 +764,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true, micIncluded: r.micIncluded, warning: r.warning, recordingStartedAt })
         } else {
           setRecordingStarting(false)
+          setLastRecordingError(r?.error || 'Failed to start')
           sendResponse({ ok: false, error: r?.error || 'Failed to start' })
         }
       } catch (e: any) {
@@ -685,6 +772,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         captureException(e, { operation: 'START_RECORDING' })
         await resetOffscreen()
         setRecordingStarting(false)
+        setLastRecordingError(`OFFSCREEN_START failed: ${e?.message || e}`)
         sendResponse({ ok: false, error: `OFFSCREEN_START failed: ${e?.message || e}` })
       }
       return
@@ -719,7 +807,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           'recordingStarting',
           'recordingStartingTabId',
           'recordingStartRequestedAt',
-          'recordingStopping'
+          'recordingStopping',
+          'lastRecordingError'
         ])
         lastKnownRecording = !!sessionState?.recording
         recordingStartedAt = typeof sessionState?.recordingStartedAt === 'number'
@@ -733,6 +822,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           ? sessionState.recordingStartRequestedAt
           : null
         recordingStopping = !!sessionState?.recordingStopping
+        lastRecordingError = typeof sessionState?.lastRecordingError === 'string'
+          ? sessionState.lastRecordingError
+          : null
         if (!lastKnownRecording && !recordingStarting && !recordingStopping) {
           clearRecordingBadges(currentRecordingTabId)
         }
@@ -746,6 +838,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         startingTabId: recordingStartingTabId,
         startRequestedAt: recordingStartRequestedAt,
         stopping: recordingStopping,
+        error: lastRecordingError,
         recentRecordings
       })
       return
@@ -863,7 +956,8 @@ async function hydrateRecordingRuntimeState(): Promise<void> {
       'recordingStarting',
       'recordingStartingTabId',
       'recordingStartRequestedAt',
-      'recordingStopping'
+      'recordingStopping',
+      'lastRecordingError'
     ])
     lastKnownRecording = !!sessionState?.recording
     recordingStartedAt = typeof sessionState?.recordingStartedAt === 'number'
@@ -877,6 +971,9 @@ async function hydrateRecordingRuntimeState(): Promise<void> {
       ? sessionState.recordingStartRequestedAt
       : null
     recordingStopping = !!sessionState?.recordingStopping
+    lastRecordingError = typeof sessionState?.lastRecordingError === 'string'
+      ? sessionState.lastRecordingError
+      : null
 
     if (lastKnownRecording) {
       setBadge(true, currentRecordingTabId)

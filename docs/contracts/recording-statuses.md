@@ -20,16 +20,16 @@ Rozszerzenie nie powinno emitować ani pokazywać legacy statusu `pending`. Stat
 
 | Status | Owner | Znaczenie |
 |--------|-------|-----------|
-| `recording` | Chrome extension | Trwa lokalne nagrywanie spotkania. Backend może jeszcze nie znać tej pozycji. |
+| `recording` | Chrome extension | Trwa lokalne nagrywanie spotkania; docelowo backend zna tę pozycję przez synchronizację stanu rozszerzenia. |
 | `finalizing` | Chrome extension | Użytkownik zatrzymał nagrywanie, a rozszerzenie finalizuje lokalne bloby i metadane przed uploadem. |
 | `upload_queued` | Chrome extension | Nagranie jest gotowe do uploadu, ale upload czeka albo jest zaplanowany do retry. |
 | `uploading` | Chrome extension | Rozszerzenie aktywnie wysyła assety nagrania do backendu. |
 | `processing_queued` | Backend | Backend ma pliki i metadane, a przetwarzanie po stronie serwera czeka na start. |
 | `processing` | Backend | Worker backendu aktywnie przetwarza nagranie. |
 | `ready` | Backend | Przetworzone nagranie web-playable jest dostępne. |
-| `failed` | Backend albo Chrome extension | Aktualny etap zakończył się błędem i wymaga retry, diagnostyki albo akcji użytkownika. |
+| `failed` | Backend albo Chrome extension | Aktualny etap zakończył się błędem i wymaga retry, diagnostyki albo akcji użytkownika. Stan musi zawierać uzasadnienie błędu. |
 | `canceled` | Chrome extension | Użytkownik celowo anulował nagrywanie albo upload. |
-| `expired` | Backend | Backend wygasił niedokończone albo osierocone nagranie przejściowe. |
+| `expired` | Backend/admin | Rezerwacja dla przyszłego ręcznego albo administracyjnego cleanupu. Nie jest automatycznym porzuceniem pozycji przez rozszerzenie. |
 
 ## Model przejść
 
@@ -43,7 +43,7 @@ Przepływy błędów:
 
 1. Każdy aktywny status może przejść do `failed`.
 2. Celowe przerwanie przez użytkownika przechodzi do `canceled`.
-3. Backendowy cleanup porzuconych pozycji przejściowych przechodzi do `expired`.
+3. Porzucenie pozycji jest decyzją użytkownika albo administracji w backendzie, nie automatyczną decyzją rozszerzenia.
 
 ## Polityka legacy
 

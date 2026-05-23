@@ -39,6 +39,7 @@ interface RecordingStatus {
   starting: boolean
   stopping: boolean
   recordingStartedAt: number | null
+  error: string | null
 }
 
 const { Text } = Typography
@@ -233,7 +234,8 @@ function App(): React.ReactElement {
     recording: false,
     starting: false,
     stopping: false,
-    recordingStartedAt: null
+    recordingStartedAt: null,
+    error: null
   })
   const [recentRecordings, setRecentRecordings] = useState<RecordingHistoryItem[]>(initialCache.recentRecordings)
   const [micStatus, setMicStatus] = useState('')
@@ -289,7 +291,8 @@ function App(): React.ReactElement {
           recording: !!status?.recording,
           starting: !!status?.starting,
           stopping: !!status?.stopping,
-          recordingStartedAt: typeof startedAt === 'number' ? startedAt : null
+          recordingStartedAt: typeof startedAt === 'number' ? startedAt : null,
+          error: typeof status?.error === 'string' ? status.error : null
         })
         setRecentRecordings(sanitizeRecordingHistory(status?.recentRecordings))
       } catch {
@@ -297,7 +300,8 @@ function App(): React.ReactElement {
           recording: false,
           starting: false,
           stopping: false,
-          recordingStartedAt: null
+          recordingStartedAt: null,
+          error: null
         })
       }
       await Promise.all([
@@ -341,7 +345,8 @@ function App(): React.ReactElement {
           recording: !!msg.recording,
           starting: !!msg.starting,
           stopping: !!msg.stopping,
-          recordingStartedAt: typeof startedAt === 'number' ? startedAt : null
+          recordingStartedAt: typeof startedAt === 'number' ? startedAt : null,
+          error: typeof msg.error === 'string' ? msg.error : null
         })
       }
 
@@ -441,26 +446,11 @@ function App(): React.ReactElement {
       recording: false,
       starting: true,
       stopping: false,
-      recordingStartedAt: null
+      recordingStartedAt: null,
+      error: null
     })
 
     try {
-      if ('permissions' in navigator) {
-        try {
-          const status = await (navigator as any).permissions.query({ name: 'microphone' })
-          if (status.state !== 'granted') {
-            try {
-              const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-              stream.getTracks().forEach(track => track.stop())
-            } catch {
-              // Continue with tab audio only.
-            }
-          }
-        } catch {
-          // Ignore unavailable permission state.
-        }
-      }
-
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (!tab?.id) throw new Error('No active tab')
 
@@ -471,7 +461,8 @@ function App(): React.ReactElement {
           recording: false,
           starting: true,
           stopping: false,
-          recordingStartedAt: null
+          recordingStartedAt: null,
+          error: null
         })
         return
       }
@@ -490,7 +481,8 @@ function App(): React.ReactElement {
         recording: true,
         starting: false,
         stopping: false,
-        recordingStartedAt: typeof startedAt === 'number' ? startedAt : Date.now()
+        recordingStartedAt: typeof startedAt === 'number' ? startedAt : Date.now(),
+        error: null
       })
       console.log('[popup] Recording started')
       if (response.warning === 'NO_MIC_AUDIO') {
@@ -504,7 +496,8 @@ function App(): React.ReactElement {
         recording: false,
         starting: false,
         stopping: false,
-        recordingStartedAt: null
+        recordingStartedAt: null,
+        error: error?.message || String(error)
       })
       alert(`Failed to start recording:\n${error?.message || error}`)
     } finally {
@@ -520,7 +513,8 @@ function App(): React.ReactElement {
       ...previous,
       recording: true,
       starting: false,
-      stopping: true
+      stopping: true,
+      error: null
     }))
 
     try {
@@ -539,7 +533,8 @@ function App(): React.ReactElement {
           recording: false,
           starting: false,
           stopping: false,
-          recordingStartedAt: null
+          recordingStartedAt: null,
+          error: null
         })
       }
       console.log('[popup] Stopping... uploading...')
@@ -551,7 +546,8 @@ function App(): React.ReactElement {
         recording: false,
         starting: false,
         stopping: false,
-        recordingStartedAt: null
+        recordingStartedAt: null,
+        error: null
       })
     } finally {
       inFlightRef.current = false
@@ -661,15 +657,25 @@ function App(): React.ReactElement {
                 Loading...
               </Button>
             ) : recordingControlsAvailable ? (
-              <Button
-                block
-                disabled={actionDisabled}
-                icon={actionIcon}
-                onClick={toggleRecording}
-                type={recordingState.recording ? 'default' : 'primary'}
-              >
-                {recordingButtonText}
-              </Button>
+              <>
+                <Button
+                  block
+                  disabled={actionDisabled}
+                  icon={actionIcon}
+                  onClick={toggleRecording}
+                  type={recordingState.recording ? 'default' : 'primary'}
+                >
+                  {recordingButtonText}
+                </Button>
+                {recordingState.error ? (
+                  <Alert
+                    type="error"
+                    showIcon={false}
+                    message={recordingState.error}
+                    style={{ fontSize: 12, padding: '4px 8px' }}
+                  />
+                ) : null}
+              </>
             ) : (
               <Button
                 block

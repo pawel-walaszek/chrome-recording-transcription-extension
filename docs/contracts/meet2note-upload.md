@@ -49,7 +49,7 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 10. Body globalnego `/complete` zawiera tylko faktycznie wysłane i zakończone assety.
 11. Endpointy assetów, chunków i `/complete` używają nagłówków `Authorization` oraz `X-Upload-Token`.
 12. `uploadToken`, pełnych URL-i z tokenami ani zawartości blobów nie wolno logować.
-13. Lokalny spool IndexedDB jest czyszczony dopiero po udanym globalnym `/complete`.
+13. Lokalny spool IndexedDB nie jest obecnie czyszczony automatycznie po `/complete`; decyzje o porzuceniu albo usuwaniu pozycji pozostają poza automatem rozszerzenia.
 
 ## Assety
 
@@ -69,6 +69,19 @@ Indeks i zasady katalogu kontraktów: [README.md](README.md), [AGENTS.md](AGENTS
 6. `401` albo `403` oznacza konieczność ponownego połączenia z Meet2Note.
 7. Po `401` albo `403` rozszerzenie czyści lokalny token, oznacza odpowiednią pozycję jako wymagającą reconnect i nie ponawia zwykłego uploadu bez końca.
 8. Jeśli zapisany `uploadSession` zwróci `404`, rozszerzenie traktuje go jako nieaktualny, czyści tylko sesję backendową i zakłada nową sesję dla tego samego lokalnego nagrania.
+9. Błędy uploadu i błędy lokalne mają być raportowane do backendu jako stan nagrania z uzasadnieniem, a nie tylko do lokalnego popupu albo Sentry.
+
+## Synchronizacja stanu rozszerzenia
+
+1. Rozszerzenie synchronizuje stan każdej backendowo mutowalnej pozycji przez `PUT /api/recordings/{recordingId}/extension-state`.
+2. `recordingId` jest stabilnym UUID po stronie rozszerzenia. Dla historycznych lokalnych identyfikatorów spoza formatu UUID rozszerzenie dogenerowuje UUID i zapisuje go jako `backendRecordingId`.
+3. Ten sam identyfikator trafia później do `POST /api/upload/init`, żeby stan przeduploadowy i sesja uploadu dotyczyły tego samego rekordu backendu.
+4. Synchronizacja obejmuje statusy właścicielskie rozszerzenia: `recording`, `finalizing`, `upload_queued`, `uploading`, `failed` i `canceled`.
+5. Rozszerzenie nie wysyła przez ten endpoint statusów backendowych `processing_queued`, `processing`, `ready` ani `expired`.
+6. Obecny backendowy payload przyjmuje `title`, `status`, `startedAt`, `durationMs`, `uploadProgressPercent`, `meetingId` i `meetingUrl`.
+7. Docelowo payload musi zostać rozszerzony po stronie backendu o uzasadnienie błędu, między innymi `failureReason`, `error`, `attempt` i `nextRetryAt`; jest to zakres backendowego issue `pawel-walaszek/recording-backend#31`.
+8. `failed` bez uzasadnienia jest niepoprawnym stanem produktowym; dopóki backend nie przyjmie tych pól, rozszerzenie przechowuje uzasadnienie lokalnie i synchronizuje sam status.
+9. Automatyka rozszerzenia nie powinna wysyłać decyzji o porzuceniu pozycji. Porzucenie, usunięcie albo świadome zakończenie failed pozycji jest decyzją użytkownika w backendzie.
 
 ## Uprawnienia Chrome
 

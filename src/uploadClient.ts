@@ -15,6 +15,7 @@ export interface UploadSessionState {
 }
 
 export interface UploadRecordingInput {
+  recordingId?: string
   title: string
   meetingId?: string
   meetingTitle?: string
@@ -304,6 +305,7 @@ async function initUpload(
     title: input.title
   }
 
+  if (input.recordingId) body.recordingId = input.recordingId
   if (input.meetingId) body.meetingId = input.meetingId
   if (input.meetingTitle) body.meetingTitle = input.meetingTitle
   if (input.startedAt) body.startedAt = input.startedAt
