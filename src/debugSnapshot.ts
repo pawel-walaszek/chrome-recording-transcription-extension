@@ -106,55 +106,24 @@ async function spoolDatabaseExists(): Promise<boolean> {
   return databases.some(db => db.name === RECORDING_SPOOL_DB_NAME)
 }
 
-function deleteEmptyDebugSpoolDb(timeoutMs = 2_000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(RECORDING_SPOOL_DB_NAME)
-    let blocked = false
-    let settled = false
-    const timeoutId = window.setTimeout(() => {
-      if (settled) return
-      settled = true
-      reject(new Error(blocked
-        ? 'Deleting empty debug spool database is blocked by another open connection.'
-        : 'Deleting empty debug spool database timed out.'))
-    }, timeoutMs)
-    const settle = (callback: () => void) => {
-      if (settled) return
-      settled = true
-      window.clearTimeout(timeoutId)
-      callback()
-    }
-
-    request.onsuccess = () => settle(resolve)
-    request.onerror = () => settle(() => reject(request.error || new Error('Could not delete empty debug spool database.')))
-    request.onblocked = () => {
-      blocked = true
-    }
-  })
-}
-
 async function openDebugSpoolDb(): Promise<DebugSpoolOpenResult> {
   if (!await spoolDatabaseExists()) return { db: null, error: null }
   return new Promise((resolve, reject) => {
-    let createdDuringDebugOpen = false
+    let missingDatabaseOpenAborted = false
     const request = indexedDB.open(RECORDING_SPOOL_DB_NAME)
     request.onupgradeneeded = () => {
-      createdDuringDebugOpen = true
+      missingDatabaseOpenAborted = true
+      request.transaction?.abort()
     }
-    request.onerror = () => reject(request.error || new Error('Could not open recording spool.'))
-    request.onsuccess = () => {
-      if (!createdDuringDebugOpen) {
-        resolve({ db: request.result, error: null })
+    request.onerror = () => {
+      if (missingDatabaseOpenAborted) {
+        resolve({ db: null, error: null })
         return
       }
-
-      request.result.close()
-      deleteEmptyDebugSpoolDb()
-        .then(() => resolve({ db: null, error: null }))
-        .catch((e) => resolve({
-          db: null,
-          error: e instanceof Error ? e.message : String(e)
-        }))
+      reject(request.error || new Error('Could not open recording spool.'))
+    }
+    request.onsuccess = () => {
+      resolve({ db: request.result, error: null })
     }
   })
 }
