@@ -2,6 +2,7 @@ import {
   makeAuthorizationHeader,
   Meet2NoteAuthError
 } from './extensionAuth'
+import { fetchWithTimeout, normalizeErrorBody } from './httpClientUtils'
 import { makeMeet2NoteUrl } from './meet2noteConfig'
 
 export type UploadAsset = 'video_audio' | 'microphone'
@@ -86,24 +87,6 @@ class Meet2NoteUploadHttpError extends Error {
   }
 }
 
-function normalizeErrorBody(body: string | null): string | null {
-  if (!body) return null
-  const trimmed = body.trim()
-  if (!trimmed) return null
-  try {
-    const parsed = JSON.parse(trimmed) as unknown
-    if (parsed && typeof parsed === 'object') {
-      const record = parsed as Record<string, unknown>
-      const message = record.message
-      const error = record.error
-      if (Array.isArray(message)) return message.map(String).join('; ').slice(0, 500)
-      if (typeof message === 'string' && message.trim()) return message.trim().slice(0, 500)
-      if (typeof error === 'string' && error.trim()) return error.trim().slice(0, 500)
-    }
-  } catch {}
-  return trimmed.slice(0, 500)
-}
-
 function httpErrorFromStatus(operation: string, status: number, rawResponseBody: string | null = null): Error {
   if (status === 401 || status === 403) {
     return new Meet2NoteAuthError(`Meet2Note connection required for ${operation}.`, status)
@@ -131,28 +114,18 @@ function isStaleUploadSessionError(error: unknown): boolean {
   return error instanceof Meet2NoteUploadHttpError && error.status === 404
 }
 
-async function fetchWithTimeout(
+async function fetchUploadWithTimeout(
   operation: string,
   url: string,
   init: RequestInit,
   timeoutMs: number
 ): Promise<Response> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal
-    })
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error(`${operation} timed out after ${Math.round(timeoutMs / 1000)} seconds`)
-    }
-    throw error
-  } finally {
-    clearTimeout(timeoutId)
-  }
+  return fetchWithTimeout(
+    url,
+    init,
+    timeoutMs,
+    `${operation} timed out after ${Math.round(timeoutMs / 1000)} seconds`
+  )
 }
 
 function numberOrUndefined(value: unknown): number | undefined {
@@ -311,7 +284,7 @@ async function initUpload(
   if (input.startedAt) body.startedAt = input.startedAt
   if (typeof input.durationMs === 'number' && input.durationMs > 0) body.durationMs = Math.floor(input.durationMs)
 
-  const response = await fetchWithTimeout(
+  const response = await fetchUploadWithTimeout(
     'init upload',
     makeMeet2NoteUrl('/api/upload/init'),
     {
@@ -386,7 +359,7 @@ async function initAsset(
 ): Promise<UploadAssetState> {
   const operation = `init ${asset} asset`
   const totalChunks = Math.ceil(blob.size / chunkSizeBytes)
-  const response = await fetchWithTimeout(
+  const response = await fetchUploadWithTimeout(
     operation,
     makeMeet2NoteUrl(`/api/upload/${encodeURIComponent(session.recordingId)}/assets/${asset}`),
     {
@@ -416,7 +389,7 @@ async function getAssetState(
   authHeaders: { Authorization: string }
 ): Promise<UploadAssetState> {
   const operation = `get ${asset} asset state`
-  const response = await fetchWithTimeout(
+  const response = await fetchUploadWithTimeout(
     operation,
     makeMeet2NoteUrl(`/api/upload/${encodeURIComponent(session.recordingId)}/assets/${asset}`),
     {
@@ -503,7 +476,7 @@ async function completeAsset(
   authHeaders: { Authorization: string }
 ): Promise<UploadAssetState> {
   const operation = `complete ${asset} asset`
-  const response = await fetchWithTimeout(
+  const response = await fetchUploadWithTimeout(
     operation,
     makeMeet2NoteUrl(`/api/upload/${encodeURIComponent(session.recordingId)}/assets/${asset}/complete`),
     {
@@ -527,7 +500,7 @@ async function completeUpload(
   assets: UploadAsset[],
   authHeaders: { Authorization: string }
 ): Promise<void> {
-  const response = await fetchWithTimeout(
+  const response = await fetchUploadWithTimeout(
     'complete upload',
     makeMeet2NoteUrl(`/api/upload/${encodeURIComponent(session.recordingId)}/complete`),
     {

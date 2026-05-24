@@ -1,6 +1,7 @@
 // src/popup.tsx
 
 import {
+  BugOutlined,
   CheckOutlined,
   CloudUploadOutlined,
   LinkOutlined,
@@ -70,6 +71,10 @@ function formatDuration(ms: number): string {
 
 async function openMicSetupTab(): Promise<void> {
   await chrome.tabs.create({ url: chrome.runtime.getURL('micsetup.html') })
+}
+
+async function openDebugTab(): Promise<void> {
+  await chrome.tabs.create({ url: chrome.runtime.getURL('debug.html') })
 }
 
 async function readMicStatus(): Promise<string> {
@@ -439,6 +444,16 @@ function App(): React.ReactElement {
     }
   }, [refreshMeet2NoteConnection])
 
+  const openDebug = useCallback(async () => {
+    try {
+      await openDebugTab()
+    } catch (error) {
+      console.error('[popup] debug page open error', error)
+      captureException(error, { operation: 'openDebugTab' })
+      alert(`Could not open the debug page:\n${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [])
+
   const startRecording = useCallback(async () => {
     inFlightRef.current = true
     setInFlight(true)
@@ -649,6 +664,16 @@ function App(): React.ReactElement {
                 ) : null}
               </Flex>
             )}
+            <Divider style={{ margin: '4px 0' }} />
+            <Button
+              block
+              icon={<BugOutlined />}
+              onClick={openDebug}
+              size="small"
+              title="Open local extension storage and recording spool debug data"
+            >
+              Debug
+            </Button>
           </>
         ) : (
           <>
