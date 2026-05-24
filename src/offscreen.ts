@@ -59,6 +59,7 @@ const DEBUG_MAINTENANCE_SYNC_WAIT_TIMEOUT_MS = 10_000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
 const MICROPHONE_STOP_TIMEOUT_MS = 2_000
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
+const CLOSED_SPOOL_LOCAL_IDS_LIMIT = 100
 const INTERRUPTED_RECORDING_MESSAGE = 'Recording was interrupted before it could be finalized.'
 const STORAGE_ALMOST_FULL_MESSAGE = 'Browser storage is almost full. Free space before starting another recording.'
 const ORPHANED_PENDING_UPLOAD_STATUSES: RecordingUploadStatus[] = [
@@ -599,6 +600,15 @@ let currentRecordingId = 0
 const abandonedRecordingIds = new Set<number>()
 const closedSpoolLocalIds = new Set<string>()
 
+function rememberClosedSpoolLocalId(localId: string): void {
+  closedSpoolLocalIds.add(localId)
+  while (closedSpoolLocalIds.size > CLOSED_SPOOL_LOCAL_IDS_LIMIT) {
+    const oldestLocalId = closedSpoolLocalIds.values().next().value
+    if (typeof oldestLocalId !== 'string') break
+    closedSpoolLocalIds.delete(oldestLocalId)
+  }
+}
+
 function buildOffscreenRuntimeStatus(): OffscreenRuntimeStatus {
   return {
     recording: capturing,
@@ -923,7 +933,7 @@ async function deleteLocalRecordingHistoryItem(localId: string): Promise<void> {
 }
 
 async function deleteLocalSpoolArtifacts(localId: string): Promise<void> {
-  closedSpoolLocalIds.add(localId)
+  rememberClosedSpoolLocalId(localId)
   await Promise.all([
     deleteSpoolChunks(localId),
     deleteSpoolRecording(localId)

@@ -37,11 +37,14 @@ let recentRecordings: RecordingHistoryItem[] = []
 let backendRecordings: RecordingHistoryItem[] = []
 let backendRecordingsRefreshPromise: Promise<void> | null = null
 let backendRecordingsLastRefreshedAt = 0
+let localMaintenanceWakePromise: Promise<unknown> | null = null
+let localMaintenanceLastWokeAt = 0
 const BACKEND_RECORDINGS_REFRESH_THROTTLE_MS = 15_000
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 const DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS = 15_000
 const LOCAL_MAINTENANCE_OFFSCREEN_RESPONSE_TIMEOUT_MS = 60_000
+const LOCAL_MAINTENANCE_WAKE_INTERVAL_MS = 60_000
 const STOP_OFFSCREEN_RESPONSE_TIMEOUT_MS = 3_000
 const EXTENSION_LOCAL_RECORDING_FAILURE_STAGE = 'local_recording'
 const EXTENSION_ORPHANED_CHUNKS_FAILURE_STAGE = 'local_spool_orphaned_chunks'
@@ -169,34 +172,33 @@ async function hydrateRecentRecordings(): Promise<RecordingHistoryItem[]> {
 
 async function refreshRecentRecordingsFromBackend(): Promise<RecordingHistoryItem[]> {
   backendRecordings = await readBackendRecordingHistory()
-  const localHistory = await pruneBackendOwnedLocalHistory(await readRecordingHistory(), backendRecordings)
+  const localHistory = await pruneBackendOwnedLocalHistory(backendRecordings)
   recentRecordings = mergeRecordingHistory(localHistory, backendRecordings).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
   return recentRecordings
 }
 
 async function pruneBackendOwnedLocalHistory(
-  localHistory: RecordingHistoryItem[],
   backendHistory: RecordingHistoryItem[]
 ): Promise<RecordingHistoryItem[]> {
-  if (!backendHistory.length) return localHistory
+  if (!backendHistory.length) return readRecordingHistory()
 
   const backendIds = new Set(
     backendHistory
       .map(item => item.backendRecordingId)
       .filter((backendId): backendId is string => typeof backendId === 'string' && backendId.length > 0)
   )
-  if (!backendIds.size) return localHistory
+  if (!backendIds.size) return readRecordingHistory()
 
-  let changed = false
-  const pruned = localHistory.filter((item) => {
-    if (!item.backendRecordingId || !backendIds.has(item.backendRecordingId)) return true
-    if (isLocalOnlyPopupHistoryItem(item)) return true
-    changed = true
-    return false
+  return updateRecordingHistory((currentHistory) => {
+    let changed = false
+    const pruned = currentHistory.filter((item) => {
+      if (!item.backendRecordingId || !backendIds.has(item.backendRecordingId)) return true
+      if (isLocalOnlyPopupHistoryItem(item)) return true
+      changed = true
+      return false
+    })
+    return changed ? pruned : currentHistory
   })
-  if (!changed) return localHistory
-
-  return updateRecordingHistory(() => pruned)
 }
 
 function backendRecordingToHistoryItem(recording: BackendRecordingListItem): RecordingHistoryItem {
@@ -428,7 +430,16 @@ function wakeOffscreenForLocalMaintenance(): void {
   ])
     .then(async ([hasPendingUploads, token]) => {
       if (!hasPendingUploads && !token) return undefined
-      await runOffscreenLocalMaintenance()
+      if (!hasPendingUploads && Date.now() - localMaintenanceLastWokeAt < LOCAL_MAINTENANCE_WAKE_INTERVAL_MS) {
+        return undefined
+      }
+      if (localMaintenanceWakePromise) return localMaintenanceWakePromise
+      localMaintenanceLastWokeAt = Date.now()
+      localMaintenanceWakePromise = runOffscreenLocalMaintenance()
+        .finally(() => {
+          localMaintenanceWakePromise = null
+        })
+      await localMaintenanceWakePromise
       return undefined
     })
     .catch((e) => {

@@ -45,7 +45,7 @@ interface RecordingStatus {
 
 const { Text } = Typography
 const START_RECORDING_POPUP_DELAY_MS = 3_000
-const BACKEND_STATUS_REFRESH_INTERVAL_MS = 5_000
+const BACKEND_STATUS_REFRESH_INTERVAL_MS = 15_000
 const MEET2NOTE_BRAND_ICON_URL = chrome.runtime.getURL('icons/meet2note-favicon.svg')
 const POPUP_WIDTH = 252
 const HEADER_ACTION_ICON_STYLE: React.CSSProperties = {
