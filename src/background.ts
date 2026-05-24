@@ -246,6 +246,9 @@ async function readBackendRecordingHistory(): Promise<RecordingHistoryItem[]> {
       .filter(shouldShowBackendRecordingInExtension)
       .map(backendRecordingToHistoryItem)
   } catch (e) {
+    if (isMeet2NoteAuthError(e)) {
+      await markMeet2NoteReconnectRequired(e.message).catch(() => {})
+    }
     bglog('Backend recordings list failed', e)
     captureException(e, { operation: 'readBackendRecordingHistory' })
     return []
