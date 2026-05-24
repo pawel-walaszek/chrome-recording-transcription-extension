@@ -401,11 +401,11 @@ async function hasPendingLocalUploadInHistory(): Promise<boolean> {
   }
 }
 
-async function runOffscreenLocalMaintenance(): Promise<unknown> {
+async function runOffscreenLocalMaintenance(forceOrphanedChunkDiagnostics = false): Promise<unknown> {
   await ensureOffscreen()
   if (offscreenPort) {
     const response = await postToOffscreen(
-      { type: 'OFFSCREEN_RUN_LOCAL_MAINTENANCE' },
+      { type: 'OFFSCREEN_RUN_LOCAL_MAINTENANCE', forceOrphanedChunkDiagnostics },
       LOCAL_MAINTENANCE_OFFSCREEN_RESPONSE_TIMEOUT_MS
     ).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
     return response
@@ -1002,7 +1002,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
     if (msg?.type === 'DEBUG_RUN_LOCAL_MAINTENANCE') {
       try {
-        const result = await runOffscreenLocalMaintenance()
+        const result = await runOffscreenLocalMaintenance(true)
         sendResponse(result)
       } catch (e: any) {
         captureException(e, { operation: 'DEBUG_RUN_LOCAL_MAINTENANCE' })

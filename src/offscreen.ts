@@ -1308,7 +1308,6 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
         uploadProgressPercent: null
       })
       await deleteLocalSpoolArtifacts(entry.localId)
-      await deleteLocalRecordingHistoryItem(entry.localId)
       removeQueueEntry(entry.localId)
       log('Upload completed', { localId: entry.localId, recordingId: result.recordingId, assets: result.assets, attempt })
       return 'done'
@@ -1824,7 +1823,9 @@ async function restoreUploadQueueFromSpoolOnce(): Promise<void> {
   }
 }
 
-async function runLocalMaintenanceNow(): Promise<LocalMaintenanceResult> {
+async function runLocalMaintenanceNow(
+  options: { forceOrphanedChunkDiagnostics?: boolean } = {}
+): Promise<LocalMaintenanceResult> {
   if (capturing || currentSpoolRecord) {
     return {
       ranAt: new Date().toISOString(),
@@ -1860,7 +1861,9 @@ async function runLocalMaintenanceNow(): Promise<LocalMaintenanceResult> {
       ? historyAfterSync.get(item.localId)?.backendRecordingId ?? null
       : null
   }
-  const orphanedChunkDiagnostics = await reportAndDeleteOrphanedSpoolChunks({ force: true })
+  const orphanedChunkDiagnostics = await reportAndDeleteOrphanedSpoolChunks({
+    force: options.forceOrphanedChunkDiagnostics === true
+  })
 
   return {
     ranAt: new Date().toISOString(),
@@ -2386,7 +2389,9 @@ async function handleOffscreenPortMessage(msg: any): Promise<void> {
     }
 
     if (msg?.type === 'OFFSCREEN_RUN_LOCAL_MAINTENANCE') {
-      const result = await runLocalMaintenanceNow()
+      const result = await runLocalMaintenanceNow({
+        forceOrphanedChunkDiagnostics: msg.forceOrphanedChunkDiagnostics === true
+      })
       return respond(msg, { ok: true, result })
     }
 
