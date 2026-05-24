@@ -43,6 +43,7 @@ const BACKEND_RECORDINGS_REFRESH_THROTTLE_MS = 15_000
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 const DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS = 15_000
+const OFFSCREEN_STATUS_RESPONSE_TIMEOUT_MS = 1_500
 const LOCAL_MAINTENANCE_OFFSCREEN_RESPONSE_TIMEOUT_MS = 60_000
 const LOCAL_MAINTENANCE_WAKE_INTERVAL_MS = 60_000
 const STOP_OFFSCREEN_RESPONSE_TIMEOUT_MS = 3_000
@@ -419,7 +420,7 @@ async function readOffscreenRecordingStatus(): Promise<Record<string, unknown> |
   if (!offscreenPort) return null
   const response = await postToOffscreen(
     { type: 'OFFSCREEN_STATUS' },
-    DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS
+    OFFSCREEN_STATUS_RESPONSE_TIMEOUT_MS
   ).catch(() => null)
   return response && typeof response === 'object'
     ? response as Record<string, unknown>
