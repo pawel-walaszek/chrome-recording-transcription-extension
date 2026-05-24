@@ -1,4 +1,5 @@
 import { makeAuthorizationHeader, Meet2NoteAuthError } from './extensionAuth'
+import { fetchWithTimeout, normalizeErrorBody } from './httpClientUtils'
 import { makeMeet2NoteUrl } from './meet2noteConfig'
 import type { RecordingFailureReason, RecordingHistoryItem, RecordingUploadStatus } from './recordingHistory'
 
@@ -45,42 +46,6 @@ export function resolveExtensionRecordingId(item: RecordingHistoryItem): string 
   if (item.backendRecordingId && UUID_PATTERN.test(item.backendRecordingId)) return item.backendRecordingId
   if (UUID_PATTERN.test(item.localId)) return item.localId
   return null
-}
-
-function normalizeErrorBody(body: string | null): string | null {
-  if (!body) return null
-  const trimmed = body.trim()
-  if (!trimmed) return null
-  try {
-    const parsed = JSON.parse(trimmed) as unknown
-    if (parsed && typeof parsed === 'object') {
-      const record = parsed as Record<string, unknown>
-      const message = record.message
-      const error = record.error
-      if (Array.isArray(message)) return message.map(String).join('; ').slice(0, 500)
-      if (typeof message === 'string' && message.trim()) return message.trim().slice(0, 500)
-      if (typeof error === 'string' && error.trim()) return error.trim().slice(0, 500)
-    }
-  } catch {}
-  return trimmed.slice(0, 500)
-}
-
-async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), SYNC_EXTENSION_STATE_TIMEOUT_MS)
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal
-    })
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error('sync extension recording state timed out after 30 seconds')
-    }
-    throw error
-  } finally {
-    clearTimeout(timeoutId)
-  }
 }
 
 function titleForSync(title: string): string {
@@ -172,7 +137,9 @@ export async function syncExtensionRecordingState(
         Authorization: makeAuthorizationHeader(extensionToken)
       },
       body: JSON.stringify(body)
-    }
+    },
+    SYNC_EXTENSION_STATE_TIMEOUT_MS,
+    'sync extension recording state timed out after 30 seconds'
   )
 
   if (!response.ok) {

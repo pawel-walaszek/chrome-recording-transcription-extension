@@ -2,6 +2,7 @@ import {
   makeAuthorizationHeader,
   Meet2NoteAuthError
 } from './extensionAuth'
+import { fetchWithTimeout } from './httpClientUtils'
 import { makeMeet2NoteUrl } from './meet2noteConfig'
 
 export type BackendRecordingStatus = 'processing_queued' | 'processing' | 'ready' | 'failed' | 'expired'
@@ -18,23 +19,6 @@ export interface BackendRecordingListItem {
 }
 
 const LIST_RECORDINGS_TIMEOUT_MS = 30_000
-
-function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
-  return fetch(url, {
-    ...init,
-    signal: controller.signal
-  }).catch((error) => {
-    if (controller.signal.aborted) {
-      throw new Error(`recordings list timed out after ${Math.round(timeoutMs / 1000)} seconds`)
-    }
-    throw error
-  }).finally(() => {
-    clearTimeout(timeoutId)
-  })
-}
 
 function normalizeBackendRecordingStatus(value: unknown): BackendRecordingStatus | null {
   if (value === 'pending') return 'processing_queued'
@@ -86,7 +70,8 @@ export async function listMeet2NoteRecordings(extensionToken: string): Promise<B
         Authorization: makeAuthorizationHeader(token)
       }
     },
-    LIST_RECORDINGS_TIMEOUT_MS
+    LIST_RECORDINGS_TIMEOUT_MS,
+    `recordings list timed out after ${Math.round(LIST_RECORDINGS_TIMEOUT_MS / 1000)} seconds`
   )
 
   if (response.status === 401 || response.status === 403) {
