@@ -913,8 +913,7 @@ async function queueRecordingStateSync(item: RecordingHistoryItem): Promise<Reco
 
 function shouldRemoveSyncedTerminalLocalHistoryItem(item: RecordingHistoryItem): boolean {
   if (!item.backendRecordingId) return false
-  if (item.status === 'canceled') return true
-  return item.status === 'failed' && item.failureReason !== 'auth_required'
+  return item.status === 'canceled'
 }
 
 async function deleteLocalRecordingHistoryItem(localId: string): Promise<void> {
