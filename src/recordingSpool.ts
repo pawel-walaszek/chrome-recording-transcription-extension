@@ -4,10 +4,10 @@ import type {
 } from './recordingHistory'
 import { normalizeRecordingHistoryItem } from './recordingHistory'
 
-const DB_NAME = 'meet2noteRecordingSpool'
+export const RECORDING_SPOOL_DB_NAME = 'meet2noteRecordingSpool'
 const DB_VERSION = 1
-const RECORDINGS_STORE = 'recordings'
-const CHUNKS_STORE = 'chunks'
+export const RECORDING_SPOOL_RECORDINGS_STORE = 'recordings'
+export const RECORDING_SPOOL_CHUNKS_STORE = 'chunks'
 const LOCAL_ID_INDEX = 'localId'
 const ASSET_INDEX = 'localIdAsset'
 
@@ -63,7 +63,7 @@ function openSpoolDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
 
   dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
+    const request = indexedDB.open(RECORDING_SPOOL_DB_NAME, DB_VERSION)
     request.onerror = () => {
       dbPromise = null
       reject(request.error || new Error('Could not open recording spool.'))
@@ -74,11 +74,11 @@ function openSpoolDb(): Promise<IDBDatabase> {
     }
     request.onupgradeneeded = () => {
       const db = request.result
-      if (!db.objectStoreNames.contains(RECORDINGS_STORE)) {
-        db.createObjectStore(RECORDINGS_STORE, { keyPath: 'localId' })
+      if (!db.objectStoreNames.contains(RECORDING_SPOOL_RECORDINGS_STORE)) {
+        db.createObjectStore(RECORDING_SPOOL_RECORDINGS_STORE, { keyPath: 'localId' })
       }
-      if (!db.objectStoreNames.contains(CHUNKS_STORE)) {
-        const chunks = db.createObjectStore(CHUNKS_STORE, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(RECORDING_SPOOL_CHUNKS_STORE)) {
+        const chunks = db.createObjectStore(RECORDING_SPOOL_CHUNKS_STORE, { keyPath: 'id' })
         chunks.createIndex(LOCAL_ID_INDEX, 'localId', { unique: false })
         chunks.createIndex(ASSET_INDEX, 'localIdAsset', { unique: false })
       }
@@ -205,8 +205,8 @@ function emptyChunkStats(): RecordingSpoolChunkAssetStats {
 export async function createSpoolRecording(record: RecordingSpoolRecord): Promise<void> {
   await enqueueSpoolWrite(async () => {
     const db = await openSpoolDb()
-    const tx = db.transaction(RECORDINGS_STORE, 'readwrite')
-    tx.objectStore(RECORDINGS_STORE).put(record)
+    const tx = db.transaction(RECORDING_SPOOL_RECORDINGS_STORE, 'readwrite')
+    tx.objectStore(RECORDING_SPOOL_RECORDINGS_STORE).put(record)
     await transactionComplete(tx)
   })
 }
@@ -217,9 +217,9 @@ export async function updateSpoolRecording(record: RecordingSpoolRecord): Promis
 
 export async function getSpoolRecording(localId: string): Promise<RecordingSpoolRecord | null> {
   const db = await openSpoolDb()
-  const tx = db.transaction(RECORDINGS_STORE, 'readonly')
+  const tx = db.transaction(RECORDING_SPOOL_RECORDINGS_STORE, 'readonly')
   const result = await requestResult<RecordingSpoolRecord | undefined>(
-    tx.objectStore(RECORDINGS_STORE).get(localId)
+    tx.objectStore(RECORDING_SPOOL_RECORDINGS_STORE).get(localId)
   )
   return result || null
 }
@@ -233,7 +233,7 @@ export async function appendSpoolChunk(params: {
 }): Promise<number> {
   return enqueueSpoolWrite(async () => {
     const db = await openSpoolDb()
-    const tx = db.transaction(CHUNKS_STORE, 'readwrite')
+    const tx = db.transaction(RECORDING_SPOOL_CHUNKS_STORE, 'readwrite')
     const chunk: RecordingSpoolChunk = {
       id: `${params.localId}:${params.asset}:${params.sequence}`,
       localId: params.localId,
@@ -245,7 +245,7 @@ export async function appendSpoolChunk(params: {
       mimeType: params.mimeType,
       createdAt: new Date().toISOString()
     }
-    tx.objectStore(CHUNKS_STORE).put(chunk)
+    tx.objectStore(RECORDING_SPOOL_CHUNKS_STORE).put(chunk)
     await transactionComplete(tx)
     return chunk.sizeBytes
   })
@@ -253,9 +253,9 @@ export async function appendSpoolChunk(params: {
 
 export async function listSpoolRecordings(): Promise<RecordingSpoolRecord[]> {
   const db = await openSpoolDb()
-  const tx = db.transaction(RECORDINGS_STORE, 'readonly')
+  const tx = db.transaction(RECORDING_SPOOL_RECORDINGS_STORE, 'readonly')
   const result = await requestResult<RecordingSpoolRecord[]>(
-    tx.objectStore(RECORDINGS_STORE).getAll()
+    tx.objectStore(RECORDING_SPOOL_RECORDINGS_STORE).getAll()
   )
   return result.map(normalizeSpoolRecord)
 }
@@ -279,16 +279,16 @@ export async function listOrphanedSpoolChunkGroups(options: {
   const db = await openSpoolDb()
   const nowMs = options.nowMs ?? Date.now()
   const gracePeriodMs = Math.max(0, options.gracePeriodMs)
-  const recordsTx = db.transaction(RECORDINGS_STORE, 'readonly')
+  const recordsTx = db.transaction(RECORDING_SPOOL_RECORDINGS_STORE, 'readonly')
   const records = await requestResult<RecordingSpoolRecord[]>(
-    recordsTx.objectStore(RECORDINGS_STORE).getAll()
+    recordsTx.objectStore(RECORDING_SPOOL_RECORDINGS_STORE).getAll()
   )
   await transactionComplete(recordsTx)
 
   const knownLocalIds = new Set(records.map(record => record.localId))
   const groups: Record<string, OrphanedSpoolChunkGroup> = {}
-  const chunksTx = db.transaction(CHUNKS_STORE, 'readonly')
-  const store = chunksTx.objectStore(CHUNKS_STORE)
+  const chunksTx = db.transaction(RECORDING_SPOOL_CHUNKS_STORE, 'readonly')
+  const store = chunksTx.objectStore(RECORDING_SPOOL_CHUNKS_STORE)
   await new Promise<void>((resolve, reject) => {
     const request = store.openCursor()
     request.onerror = () => reject(request.error || new Error('Recording spool cursor failed.'))
@@ -346,18 +346,18 @@ export async function listOrphanedSpoolChunkGroups(options: {
 
 export async function assertSpoolAvailable(): Promise<void> {
   const db = await openSpoolDb()
-  const tx = db.transaction(RECORDINGS_STORE, 'readonly')
+  const tx = db.transaction(RECORDING_SPOOL_RECORDINGS_STORE, 'readonly')
   const complete = transactionComplete(tx)
   await Promise.all([
-    requestResult<number>(tx.objectStore(RECORDINGS_STORE).count()),
+    requestResult<number>(tx.objectStore(RECORDING_SPOOL_RECORDINGS_STORE).count()),
     complete
   ])
 }
 
 async function getChunksByIndex(localId: string, asset: RecordingUploadAsset): Promise<RecordingSpoolChunk[]> {
   const db = await openSpoolDb()
-  const tx = db.transaction(CHUNKS_STORE, 'readonly')
-  const index = tx.objectStore(CHUNKS_STORE).index(ASSET_INDEX)
+  const tx = db.transaction(RECORDING_SPOOL_CHUNKS_STORE, 'readonly')
+  const index = tx.objectStore(RECORDING_SPOOL_CHUNKS_STORE).index(ASSET_INDEX)
   const chunks = await requestResult<RecordingSpoolChunk[]>(
     index.getAll(localIdAsset(localId, asset))
   )
@@ -366,8 +366,8 @@ async function getChunksByIndex(localId: string, asset: RecordingUploadAsset): P
 
 async function countChunksByIndex(localId: string, asset: RecordingUploadAsset): Promise<number> {
   const db = await openSpoolDb()
-  const tx = db.transaction(CHUNKS_STORE, 'readonly')
-  const index = tx.objectStore(CHUNKS_STORE).index(ASSET_INDEX)
+  const tx = db.transaction(RECORDING_SPOOL_CHUNKS_STORE, 'readonly')
+  const index = tx.objectStore(RECORDING_SPOOL_CHUNKS_STORE).index(ASSET_INDEX)
   return requestResult<number>(index.count(localIdAsset(localId, asset)))
 }
 
@@ -396,8 +396,8 @@ export async function getSpoolChunkCounts(localId: string): Promise<Record<Recor
 export async function deleteSpoolChunks(localId: string): Promise<void> {
   await enqueueSpoolWrite(async () => {
     const db = await openSpoolDb()
-    const tx = db.transaction(CHUNKS_STORE, 'readwrite')
-    const store = tx.objectStore(CHUNKS_STORE)
+    const tx = db.transaction(RECORDING_SPOOL_CHUNKS_STORE, 'readwrite')
+    const store = tx.objectStore(RECORDING_SPOOL_CHUNKS_STORE)
     const index = store.index(LOCAL_ID_INDEX)
     const keys = await requestResult<IDBValidKey[]>(index.getAllKeys(localId))
     for (const key of keys) store.delete(key)
@@ -408,16 +408,16 @@ export async function deleteSpoolChunks(localId: string): Promise<void> {
 export async function deleteSpoolRecording(localId: string): Promise<void> {
   await enqueueSpoolWrite(async () => {
     const db = await openSpoolDb()
-    const tx = db.transaction(RECORDINGS_STORE, 'readwrite')
-    tx.objectStore(RECORDINGS_STORE).delete(localId)
+    const tx = db.transaction(RECORDING_SPOOL_RECORDINGS_STORE, 'readwrite')
+    tx.objectStore(RECORDING_SPOOL_RECORDINGS_STORE).delete(localId)
     await transactionComplete(tx)
   })
 }
 
 async function sumChunkSizes(): Promise<number> {
   const db = await openSpoolDb()
-  const tx = db.transaction(CHUNKS_STORE, 'readonly')
-  const store = tx.objectStore(CHUNKS_STORE)
+  const tx = db.transaction(RECORDING_SPOOL_CHUNKS_STORE, 'readonly')
+  const store = tx.objectStore(RECORDING_SPOOL_CHUNKS_STORE)
   const complete = transactionComplete(tx)
   let totalBytes = 0
 
@@ -443,7 +443,9 @@ export async function getSpoolUsage(): Promise<{ recordings: number; bytes: numb
   const db = await openSpoolDb()
   const [records, bytes] = await Promise.all([
     requestResult<RecordingSpoolRecord[]>(
-      db.transaction(RECORDINGS_STORE, 'readonly').objectStore(RECORDINGS_STORE).getAll()
+      db.transaction(RECORDING_SPOOL_RECORDINGS_STORE, 'readonly')
+        .objectStore(RECORDING_SPOOL_RECORDINGS_STORE)
+        .getAll()
     ),
     sumChunkSizes()
   ])

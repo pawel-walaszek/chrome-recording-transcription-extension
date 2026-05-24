@@ -1,8 +1,9 @@
 import { MEET2NOTE_EXTENSION_TOKEN_KEY } from './extensionAuth'
-
-const DEBUG_SPOOL_DB_NAME = 'meet2noteRecordingSpool'
-const DEBUG_RECORDINGS_STORE = 'recordings'
-const DEBUG_CHUNKS_STORE = 'chunks'
+import {
+  RECORDING_SPOOL_CHUNKS_STORE,
+  RECORDING_SPOOL_DB_NAME,
+  RECORDING_SPOOL_RECORDINGS_STORE
+} from './recordingSpool'
 const DEBUG_REDACTED_STORAGE_KEYS = new Set([
   MEET2NOTE_EXTENSION_TOKEN_KEY,
   'meet2noteConnectState',
@@ -96,13 +97,13 @@ function transactionComplete(tx: IDBTransaction): Promise<void> {
 async function spoolDatabaseExists(): Promise<boolean> {
   if (typeof indexedDB.databases !== 'function') return true
   const databases = await indexedDB.databases()
-  return databases.some(db => db.name === DEBUG_SPOOL_DB_NAME)
+  return databases.some(db => db.name === RECORDING_SPOOL_DB_NAME)
 }
 
 async function openDebugSpoolDb(): Promise<IDBDatabase | null> {
   if (!await spoolDatabaseExists()) return null
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DEBUG_SPOOL_DB_NAME)
+    const request = indexedDB.open(RECORDING_SPOOL_DB_NAME)
     request.onerror = () => reject(request.error || new Error('Could not open recording spool.'))
     request.onsuccess = () => resolve(request.result)
   })
@@ -268,15 +269,15 @@ async function readDebugSpool(): Promise<DebugSnapshot['spool']> {
     let rawRecords: unknown[] = []
     const chunkStatsByLocalId: Record<string, DebugChunkStats> = {}
 
-    if (stores.includes(DEBUG_RECORDINGS_STORE)) {
-      const tx = db.transaction(DEBUG_RECORDINGS_STORE, 'readonly')
-      rawRecords = await requestResult<unknown[]>(tx.objectStore(DEBUG_RECORDINGS_STORE).getAll())
+    if (stores.includes(RECORDING_SPOOL_RECORDINGS_STORE)) {
+      const tx = db.transaction(RECORDING_SPOOL_RECORDINGS_STORE, 'readonly')
+      rawRecords = await requestResult<unknown[]>(tx.objectStore(RECORDING_SPOOL_RECORDINGS_STORE).getAll())
       await transactionComplete(tx)
     }
 
-    if (stores.includes(DEBUG_CHUNKS_STORE)) {
-      const tx = db.transaction(DEBUG_CHUNKS_STORE, 'readonly')
-      const store = tx.objectStore(DEBUG_CHUNKS_STORE)
+    if (stores.includes(RECORDING_SPOOL_CHUNKS_STORE)) {
+      const tx = db.transaction(RECORDING_SPOOL_CHUNKS_STORE, 'readonly')
+      const store = tx.objectStore(RECORDING_SPOOL_CHUNKS_STORE)
       await new Promise<void>((resolve, reject) => {
         const request = store.openCursor()
         request.onerror = () => reject(request.error || new Error('Recording spool cursor failed.'))
