@@ -1040,21 +1040,6 @@ async function queueAllKnownRecordingStates(): Promise<RecordingStateMaintenance
       continue
     }
 
-    if (!resolvedRecordingId) {
-      summary.skipped += 1
-      summary.items.push({
-        localId: normalizedItem.localId,
-        status: normalizedItem.status,
-        backendRecordingIdBefore: normalizedItem.backendRecordingId,
-        backendRecordingIdAfter: normalizedItem.backendRecordingId,
-        resolvedRecordingId,
-        action: 'skipped',
-        reason: 'missing_backend_compatible_recording_id'
-      })
-      await queueRecordingStateSync(syncCandidate)
-      continue
-    }
-
     summary.queued += 1
     summary.items.push({
       localId: normalizedItem.localId,
