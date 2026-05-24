@@ -1051,7 +1051,7 @@ async function queueAllKnownRecordingStates(): Promise<RecordingStateMaintenance
         action: 'skipped',
         reason: 'missing_backend_compatible_recording_id'
       })
-      await queueRecordingStateSync(normalizedItem)
+      await queueRecordingStateSync(syncCandidate)
       continue
     }
 
@@ -1065,7 +1065,7 @@ async function queueAllKnownRecordingStates(): Promise<RecordingStateMaintenance
       action: 'queued',
       reason: null
     })
-    await queueRecordingStateSync(normalizedItem)
+    await queueRecordingStateSync(syncCandidate)
   }
 
   return summary
@@ -1619,7 +1619,7 @@ async function reportAndDeleteOrphanedSpoolChunks(
         stage: 'history',
         message: e instanceof Error ? e.message : String(e)
       }
-      captureException(e, { operation: 'reportAndDeleteOrphanedSpoolChunks.readRecordingHistory' })
+      captureException(e, { operation: 'reportAndDeleteOrphanedSpoolChunks.readLocalRecordingHistory' })
       return [] as RecordingHistoryItem[]
     })
     const historyByLocalId = new Map(historyItems.map(item => [item.localId, item]))
