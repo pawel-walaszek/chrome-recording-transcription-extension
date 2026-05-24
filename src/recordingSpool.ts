@@ -40,6 +40,22 @@ export interface RecordingSpoolChunk {
   createdAt: string
 }
 
+export interface RecordingSpoolChunkAssetStats {
+  chunks: number
+  bytes: number
+  firstChunkCreatedAt: string | null
+  lastChunkCreatedAt: string | null
+}
+
+export interface OrphanedSpoolChunkGroup {
+  localId: string
+  chunks: number
+  bytes: number
+  firstChunkCreatedAt: string | null
+  lastChunkCreatedAt: string | null
+  assets: Record<string, RecordingSpoolChunkAssetStats>
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null
 let spoolWriteQueue: Promise<unknown> = Promise.resolve()
 
@@ -157,6 +173,35 @@ function positiveNumberOrUndefined(value: unknown): number | undefined {
     : undefined
 }
 
+function normalizeChunkTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return null
+  return new Date(timestamp).toISOString()
+}
+
+function updateChunkStatsTimestamp(
+  stats: RecordingSpoolChunkAssetStats,
+  createdAt: string | null
+): void {
+  if (!createdAt) return
+  if (!stats.firstChunkCreatedAt || createdAt < stats.firstChunkCreatedAt) {
+    stats.firstChunkCreatedAt = createdAt
+  }
+  if (!stats.lastChunkCreatedAt || createdAt > stats.lastChunkCreatedAt) {
+    stats.lastChunkCreatedAt = createdAt
+  }
+}
+
+function emptyChunkStats(): RecordingSpoolChunkAssetStats {
+  return {
+    chunks: 0,
+    bytes: 0,
+    firstChunkCreatedAt: null,
+    lastChunkCreatedAt: null
+  }
+}
+
 export async function createSpoolRecording(record: RecordingSpoolRecord): Promise<void> {
   await enqueueSpoolWrite(async () => {
     const db = await openSpoolDb()
@@ -225,6 +270,78 @@ export async function listUploadableSpoolRecordings(): Promise<RecordingSpoolRec
 export async function listInterruptedSpoolRecordings(): Promise<RecordingSpoolRecord[]> {
   const records = await listSpoolRecordings()
   return records.filter(record => record.status === 'recording' || record.status === 'finalizing')
+}
+
+export async function listOrphanedSpoolChunkGroups(options: {
+  gracePeriodMs: number
+  nowMs?: number
+}): Promise<OrphanedSpoolChunkGroup[]> {
+  const db = await openSpoolDb()
+  const nowMs = options.nowMs ?? Date.now()
+  const gracePeriodMs = Math.max(0, options.gracePeriodMs)
+  const recordsTx = db.transaction(RECORDINGS_STORE, 'readonly')
+  const records = await requestResult<RecordingSpoolRecord[]>(
+    recordsTx.objectStore(RECORDINGS_STORE).getAll()
+  )
+  await transactionComplete(recordsTx)
+
+  const knownLocalIds = new Set(records.map(record => record.localId))
+  const groups: Record<string, OrphanedSpoolChunkGroup> = {}
+  const chunksTx = db.transaction(CHUNKS_STORE, 'readonly')
+  const store = chunksTx.objectStore(CHUNKS_STORE)
+  await new Promise<void>((resolve, reject) => {
+    const request = store.openCursor()
+    request.onerror = () => reject(request.error || new Error('Recording spool cursor failed.'))
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) {
+        resolve()
+        return
+      }
+
+      const chunk = cursor.value as Partial<RecordingSpoolChunk>
+      const localId = typeof chunk.localId === 'string' && chunk.localId
+        ? chunk.localId
+        : 'missing-localId'
+      if (!knownLocalIds.has(localId)) {
+        const asset = typeof chunk.asset === 'string' && chunk.asset ? chunk.asset : 'missing-asset'
+        const bytes = typeof chunk.sizeBytes === 'number' && Number.isFinite(chunk.sizeBytes)
+          ? chunk.sizeBytes
+          : chunk.blob instanceof Blob
+            ? chunk.blob.size
+            : 0
+        const createdAt = normalizeChunkTimestamp(chunk.createdAt)
+        const group = groups[localId] || {
+          localId,
+          chunks: 0,
+          bytes: 0,
+          firstChunkCreatedAt: null,
+          lastChunkCreatedAt: null,
+          assets: {}
+        }
+        const assetStats = group.assets[asset] || emptyChunkStats()
+        assetStats.chunks += 1
+        assetStats.bytes += bytes
+        updateChunkStatsTimestamp(assetStats, createdAt)
+        group.chunks += 1
+        group.bytes += bytes
+        updateChunkStatsTimestamp(group, createdAt)
+        group.assets[asset] = assetStats
+        groups[localId] = group
+      }
+
+      cursor.continue()
+    }
+  })
+  await transactionComplete(chunksTx)
+
+  return Object.values(groups)
+    .filter(group => {
+      if (!group.lastChunkCreatedAt) return false
+      const lastChunkMs = Date.parse(group.lastChunkCreatedAt)
+      return Number.isFinite(lastChunkMs) && nowMs - lastChunkMs >= gracePeriodMs
+    })
+    .sort((a, b) => String(a.firstChunkCreatedAt).localeCompare(String(b.firstChunkCreatedAt)))
 }
 
 export async function assertSpoolAvailable(): Promise<void> {

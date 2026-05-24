@@ -7,6 +7,7 @@ import {
 } from './extensionAuth'
 import type { MicPreferences } from './micPreferences'
 import { uploadRecordingOnce, type UploadRecordingInput, type UploadSessionState } from './uploadClient'
+import { reportExtensionDiagnostic } from './extensionDiagnosticsClient'
 import {
   generateRecordingLocalId,
   normalizeRecordingHistoryItem,
@@ -23,14 +24,17 @@ import {
   appendSpoolChunk,
   assertSpoolAvailable,
   createSpoolRecording,
+  deleteSpoolChunks,
   getSpoolRecording,
   getSpoolChunkCounts,
   listInterruptedSpoolRecordings,
+  listOrphanedSpoolChunkGroups,
   listSpoolRecordings,
   listUploadableSpoolRecordings,
   readSpoolAssetBlob,
   SPOOL_SCHEMA_VERSION,
   updateSpoolRecording,
+  type OrphanedSpoolChunkGroup,
   type RecordingSpoolUploadSession,
   type RecordingSpoolRecord
 } from './recordingSpool'
@@ -45,6 +49,7 @@ const WANT_MIC_ASSET = true
 const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 const UPLOAD_RETRY_INTERVAL_MS = 15_000
 const RECORDING_STATE_SYNC_RETRY_INTERVAL_MS = 30_000
+const ORPHANED_CHUNK_REPORT_GRACE_PERIOD_MS = 15 * 60 * 1000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
 const MICROPHONE_STOP_TIMEOUT_MS = 2_000
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
@@ -177,6 +182,7 @@ let uploadQueueWake: (() => void) | null = null
 let restoreUploadQueuePromise: Promise<void> | null = null
 let recordingStateSyncWorkerRunning = false
 let recordingStateSyncWake: (() => void) | null = null
+let orphanedChunkDiagnosticsRunning = false
 const recordingStateSyncQueue = new Map<string, RecordingHistoryItem>()
 
 function generateBackendRecordingId(): string {
@@ -1242,6 +1248,153 @@ async function markOrphanedPendingHistoryItems(uploadableSpoolLocalIds: Set<stri
   }
 }
 
+function historyContextForDiagnostic(item: RecordingHistoryItem | undefined): Record<string, unknown> | null {
+  if (!item) return null
+  return {
+    localId: item.localId,
+    backendRecordingId: item.backendRecordingId,
+    status: item.status,
+    title: item.title,
+    meetingId: item.meetingId ?? null,
+    tabUrl: item.tabUrl ?? null,
+    startedAt: item.startedAt,
+    stoppedAt: item.stoppedAt,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    durationMs: item.durationMs,
+    attempt: item.attempt,
+    error: item.error,
+    failureReason: item.failureReason,
+    assets: item.assets,
+    videoBytes: item.videoBytes,
+    microphoneBytes: item.microphoneBytes
+  }
+}
+
+function buildOrphanedChunkDiagnosticEvent(
+  group: OrphanedSpoolChunkGroup,
+  historyItem: RecordingHistoryItem | undefined
+) {
+  return {
+    eventId: `chrome-extension:local-spool-orphaned-chunks:${group.localId}`,
+    type: 'local_spool_orphaned_chunks',
+    severity: 'warning' as const,
+    occurredAt: group.lastChunkCreatedAt || new Date().toISOString(),
+    source: 'chrome_extension' as const,
+    schemaVersion: 1,
+    payload: {
+      localId: group.localId,
+      reason: 'chunks_without_spool_record',
+      disposition: 'delete_after_backend_ack',
+      chunks: group.chunks,
+      bytes: group.bytes,
+      firstChunkCreatedAt: group.firstChunkCreatedAt,
+      lastChunkCreatedAt: group.lastChunkCreatedAt,
+      assets: group.assets,
+      extension: {
+        id: chrome.runtime.id,
+        version: chrome.runtime.getManifest().version
+      },
+      historyItem: historyContextForDiagnostic(historyItem)
+    }
+  }
+}
+
+function isCurrentOrQueuedLocalId(localId: string): boolean {
+  return currentSpoolRecord?.localId === localId || uploadQueue.some(entry => entry.localId === localId)
+}
+
+async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
+  if (orphanedChunkDiagnosticsRunning) return
+  orphanedChunkDiagnosticsRunning = true
+
+  try {
+    const groups = await listOrphanedSpoolChunkGroups({
+      gracePeriodMs: ORPHANED_CHUNK_REPORT_GRACE_PERIOD_MS
+    }).catch((e) => {
+      captureException(e, { operation: 'reportAndDeleteOrphanedSpoolChunks.listOrphanedSpoolChunkGroups' })
+      return [] as OrphanedSpoolChunkGroup[]
+    })
+    if (!groups.length) return
+
+    let extensionToken: string
+    try {
+      extensionToken = await requestMeet2NoteExtensionToken()
+    } catch (e) {
+      if (isMeet2NoteAuthError(e)) {
+        await chrome.runtime.sendMessage({
+          type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
+          message: e.message
+        }).catch(() => {})
+      } else {
+        captureException(e, { operation: 'reportAndDeleteOrphanedSpoolChunks.auth' })
+      }
+      return
+    }
+
+    const historyItems = await readLocalRecordingHistory().catch((e) => {
+      captureException(e, { operation: 'reportAndDeleteOrphanedSpoolChunks.readRecordingHistory' })
+      return [] as RecordingHistoryItem[]
+    })
+    const historyByLocalId = new Map(historyItems.map(item => [item.localId, item]))
+
+    for (const group of groups) {
+      if (isCurrentOrQueuedLocalId(group.localId)) continue
+      const currentRecord = await getSpoolRecording(group.localId).catch((e) => {
+        captureException(e, {
+          operation: 'reportAndDeleteOrphanedSpoolChunks.getSpoolRecording',
+          localId: group.localId
+        })
+        return null
+      })
+      if (currentRecord) continue
+
+      try {
+        await reportExtensionDiagnostic(
+          buildOrphanedChunkDiagnosticEvent(group, historyByLocalId.get(group.localId)),
+          extensionToken
+        )
+
+        if (isCurrentOrQueuedLocalId(group.localId)) continue
+        const recordAfterReport = await getSpoolRecording(group.localId).catch((e) => {
+          captureException(e, {
+            operation: 'reportAndDeleteOrphanedSpoolChunks.getSpoolRecordingAfterReport',
+            localId: group.localId
+          })
+          return null
+        })
+        if (recordAfterReport) continue
+
+        await deleteSpoolChunks(group.localId)
+        captureMessage('Deleted orphaned local spool chunks after backend diagnostic acknowledgement.', 'info', {
+          operation: 'reportAndDeleteOrphanedSpoolChunks',
+          localId: group.localId,
+          chunks: group.chunks,
+          bytes: group.bytes,
+          firstChunkCreatedAt: group.firstChunkCreatedAt,
+          lastChunkCreatedAt: group.lastChunkCreatedAt
+        })
+      } catch (e) {
+        if (isMeet2NoteAuthError(e)) {
+          await chrome.runtime.sendMessage({
+            type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
+            message: e.message
+          }).catch(() => {})
+          return
+        }
+        captureException(e, {
+          operation: 'reportAndDeleteOrphanedSpoolChunks.reportOrDelete',
+          localId: group.localId,
+          chunks: group.chunks,
+          bytes: group.bytes
+        })
+      }
+    }
+  } finally {
+    orphanedChunkDiagnosticsRunning = false
+  }
+}
+
 async function restoreUploadQueueFromSpool(): Promise<void> {
   if (restoreUploadQueuePromise) return restoreUploadQueuePromise
   restoreUploadQueuePromise = restoreUploadQueueFromSpoolOnce()
@@ -1256,6 +1409,7 @@ async function restoreUploadQueueFromSpoolOnce(): Promise<void> {
   await queueAllKnownRecordingStates()
   const records = await listUploadableSpoolRecordings()
   await markOrphanedPendingHistoryItems(new Set(records.map(record => record.localId)))
+  await reportAndDeleteOrphanedSpoolChunks()
   let restored = 0
   const canResumeAuthRequired = await requestMeet2NoteExtensionToken()
     .then(() => true)

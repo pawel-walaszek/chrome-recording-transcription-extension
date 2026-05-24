@@ -9,6 +9,7 @@ module.exports = {
   devtool: false,
   entry: {
     popup: './src/popup.tsx',
+    debug: './src/debug.tsx',
     background: './src/background.ts',
     connectCallback: './src/connectCallback.ts',
     offscreen: './src/offscreen.ts',
@@ -42,6 +43,7 @@ module.exports = {
         { from: 'manifest.json',  to: 'manifest.json' },
         { from: 'connect-callback.html', to: 'connect-callback.html' },
         { from: 'popup.html',     to: 'popup.html' },
+        { from: 'debug.html',     to: 'debug.html' },
         { from: 'offscreen.html', to: 'offscreen.html', noErrorOnMissing: true },
         { from: 'micsetup.html', to: 'micsetup.html' },
         { from: 'assets/icons', to: 'icons' },
