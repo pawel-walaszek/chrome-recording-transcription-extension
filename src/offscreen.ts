@@ -24,7 +24,7 @@ import {
   appendSpoolChunk,
   assertSpoolAvailable,
   createSpoolRecording,
-  deleteSpoolChunks,
+  deleteSpoolChunkKeys,
   getSpoolRecording,
   getSpoolChunkCounts,
   listInterruptedSpoolRecordings,
@@ -50,6 +50,7 @@ const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 const UPLOAD_RETRY_INTERVAL_MS = 15_000
 const RECORDING_STATE_SYNC_RETRY_INTERVAL_MS = 30_000
 const ORPHANED_CHUNK_REPORT_GRACE_PERIOD_MS = 15 * 60 * 1000
+const ORPHANED_CHUNK_DIAGNOSTIC_INTERVAL_MS = 15 * 60 * 1000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
 const MICROPHONE_STOP_TIMEOUT_MS = 2_000
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
@@ -183,6 +184,7 @@ let restoreUploadQueuePromise: Promise<void> | null = null
 let recordingStateSyncWorkerRunning = false
 let recordingStateSyncWake: (() => void) | null = null
 let orphanedChunkDiagnosticsRunning = false
+let lastOrphanedChunkDiagnosticsStartedAtMs = 0
 const recordingStateSyncQueue = new Map<string, RecordingHistoryItem>()
 
 function generateBackendRecordingId(): string {
@@ -1306,6 +1308,9 @@ function isCurrentOrQueuedLocalId(localId: string): boolean {
 
 async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
   if (orphanedChunkDiagnosticsRunning) return
+  const nowMs = Date.now()
+  if (nowMs - lastOrphanedChunkDiagnosticsStartedAtMs < ORPHANED_CHUNK_DIAGNOSTIC_INTERVAL_MS) return
+  lastOrphanedChunkDiagnosticsStartedAtMs = nowMs
   orphanedChunkDiagnosticsRunning = true
 
   try {
@@ -1365,7 +1370,7 @@ async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
         })
         if (recordAfterReport) continue
 
-        await deleteSpoolChunks(group.localId)
+        await deleteSpoolChunkKeys(group.chunkKeys)
         captureMessage('Deleted orphaned local spool chunks after backend diagnostic acknowledgement.', 'info', {
           operation: 'reportAndDeleteOrphanedSpoolChunks',
           localId: group.localId,
@@ -1395,6 +1400,14 @@ async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
   }
 }
 
+function scheduleOrphanedSpoolChunkDiagnostics(): void {
+  window.setTimeout(() => {
+    void reportAndDeleteOrphanedSpoolChunks().catch((e) => {
+      captureException(e, { operation: 'scheduleOrphanedSpoolChunkDiagnostics.unhandled' })
+    })
+  }, 0)
+}
+
 async function restoreUploadQueueFromSpool(): Promise<void> {
   if (restoreUploadQueuePromise) return restoreUploadQueuePromise
   restoreUploadQueuePromise = restoreUploadQueueFromSpoolOnce()
@@ -1409,7 +1422,7 @@ async function restoreUploadQueueFromSpoolOnce(): Promise<void> {
   await queueAllKnownRecordingStates()
   const records = await listUploadableSpoolRecordings()
   await markOrphanedPendingHistoryItems(new Set(records.map(record => record.localId)))
-  await reportAndDeleteOrphanedSpoolChunks()
+  scheduleOrphanedSpoolChunkDiagnostics()
   let restored = 0
   const canResumeAuthRequired = await requestMeet2NoteExtensionToken()
     .then(() => true)

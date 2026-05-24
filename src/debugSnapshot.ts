@@ -100,12 +100,35 @@ async function spoolDatabaseExists(): Promise<boolean> {
   return databases.some(db => db.name === RECORDING_SPOOL_DB_NAME)
 }
 
+function deleteEmptyDebugSpoolDb(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(RECORDING_SPOOL_DB_NAME)
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error || new Error('Could not delete empty debug spool database.'))
+    request.onblocked = () => resolve()
+  })
+}
+
 async function openDebugSpoolDb(): Promise<IDBDatabase | null> {
   if (!await spoolDatabaseExists()) return null
   return new Promise((resolve, reject) => {
+    let createdDuringDebugOpen = false
     const request = indexedDB.open(RECORDING_SPOOL_DB_NAME)
+    request.onupgradeneeded = () => {
+      createdDuringDebugOpen = true
+    }
     request.onerror = () => reject(request.error || new Error('Could not open recording spool.'))
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      if (!createdDuringDebugOpen) {
+        resolve(request.result)
+        return
+      }
+
+      request.result.close()
+      deleteEmptyDebugSpoolDb()
+        .then(() => resolve(null))
+        .catch(reject)
+    }
   })
 }
 

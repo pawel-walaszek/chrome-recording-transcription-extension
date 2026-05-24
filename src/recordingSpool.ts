@@ -49,6 +49,7 @@ export interface RecordingSpoolChunkAssetStats {
 
 export interface OrphanedSpoolChunkGroup {
   localId: string
+  chunkKeys: IDBValidKey[]
   chunks: number
   bytes: number
   firstChunkCreatedAt: string | null
@@ -313,6 +314,7 @@ export async function listOrphanedSpoolChunkGroups(options: {
         const createdAt = normalizeChunkTimestamp(chunk.createdAt)
         const group = groups[localId] || {
           localId,
+          chunkKeys: [],
           chunks: 0,
           bytes: 0,
           firstChunkCreatedAt: null,
@@ -325,6 +327,7 @@ export async function listOrphanedSpoolChunkGroups(options: {
         updateChunkStatsTimestamp(assetStats, createdAt)
         group.chunks += 1
         group.bytes += bytes
+        group.chunkKeys.push(cursor.primaryKey)
         updateChunkStatsTimestamp(group, createdAt)
         group.assets[asset] = assetStats
         groups[localId] = group
@@ -400,6 +403,17 @@ export async function deleteSpoolChunks(localId: string): Promise<void> {
     const store = tx.objectStore(RECORDING_SPOOL_CHUNKS_STORE)
     const index = store.index(LOCAL_ID_INDEX)
     const keys = await requestResult<IDBValidKey[]>(index.getAllKeys(localId))
+    for (const key of keys) store.delete(key)
+    await transactionComplete(tx)
+  })
+}
+
+export async function deleteSpoolChunkKeys(keys: IDBValidKey[]): Promise<void> {
+  if (!keys.length) return
+  await enqueueSpoolWrite(async () => {
+    const db = await openSpoolDb()
+    const tx = db.transaction(RECORDING_SPOOL_CHUNKS_STORE, 'readwrite')
+    const store = tx.objectStore(RECORDING_SPOOL_CHUNKS_STORE)
     for (const key of keys) store.delete(key)
     await transactionComplete(tx)
   })
