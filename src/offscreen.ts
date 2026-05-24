@@ -10,8 +10,8 @@ import { uploadRecordingOnce, type UploadRecordingInput, type UploadSessionState
 import { reportExtensionDiagnostic } from './extensionDiagnosticsClient'
 import {
   generateRecordingLocalId,
+  normalizeRecordingHistory,
   normalizeRecordingHistoryItem,
-  readRecordingHistory,
   type RecordingHistoryItem,
   type RecordingUploadStatus
 } from './recordingHistory'
@@ -24,7 +24,9 @@ import {
   appendSpoolChunk,
   assertSpoolAvailable,
   createSpoolRecording,
+  deleteSpoolChunks,
   deleteSpoolChunkKeys,
+  deleteSpoolRecording,
   getSpoolRecording,
   getSpoolChunkCounts,
   listInterruptedSpoolRecordings,
@@ -39,6 +41,8 @@ import {
   type RecordingSpoolRecord
 } from './recordingSpool'
 
+declare const __EXTENSION_VERSION__: string
+
 initDiagnostics('offscreen')
 
 // Włączone oznacza przygotowanie osobnego assetu mikrofonu do uploadu.
@@ -51,6 +55,7 @@ const UPLOAD_RETRY_INTERVAL_MS = 15_000
 const RECORDING_STATE_SYNC_RETRY_INTERVAL_MS = 30_000
 const ORPHANED_CHUNK_REPORT_GRACE_PERIOD_MS = 15 * 60 * 1000
 const ORPHANED_CHUNK_DIAGNOSTIC_INTERVAL_MS = 15 * 60 * 1000
+const DEBUG_MAINTENANCE_SYNC_WAIT_TIMEOUT_MS = 10_000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
 const MICROPHONE_STOP_TIMEOUT_MS = 2_000
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
@@ -168,6 +173,13 @@ function sleepUntilRecordingStateSyncWakeOrTimeout(ms: number): Promise<void> {
   })
 }
 
+async function waitForRecordingStateSyncIdle(timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while ((recordingStateSyncWorkerRunning || recordingStateSyncQueue.size > 0) && Date.now() < deadline) {
+    await sleep(100)
+  }
+}
+
 interface UploadQueueEntry extends RecordingHistoryItem {
   schemaVersion: number
   videoMimeType: string
@@ -187,6 +199,71 @@ let orphanedChunkDiagnosticsRunning = false
 let orphanedChunkDiagnosticsTimeoutId: number | null = null
 let lastOrphanedChunkDiagnosticsStartedAtMs = 0
 const recordingStateSyncQueue = new Map<string, RecordingHistoryItem>()
+let lastRecordingStateSyncError: Record<string, unknown> | null = null
+let lastOrphanedChunkDiagnosticsError: Record<string, unknown> | null = null
+
+interface OrphanedChunkDiagnosticsResult {
+  skipped: boolean
+  reason: string | null
+  groups: number
+  reported: number
+  deleted: number
+  errors: number
+  items: OrphanedChunkDiagnosticsItem[]
+}
+
+interface OrphanedChunkDiagnosticsItem {
+  localId: string
+  chunks: number
+  bytes: number
+  firstChunkCreatedAt: string | null
+  lastChunkCreatedAt: string | null
+  status:
+    | 'reported_deleted'
+    | 'reported_skipped_current_or_queued'
+    | 'reported_skipped_restored_spool_record'
+    | 'skipped_current_or_queued'
+    | 'skipped_restored_spool_record'
+    | 'error'
+  error?: string
+}
+
+interface RecordingStateMaintenanceItem {
+  localId: string
+  status: RecordingUploadStatus
+  backendRecordingIdBefore: string | null
+  backendRecordingIdAfter: string | null
+  resolvedRecordingId: string | null
+  action: 'queued' | 'skipped'
+  reason: string | null
+}
+
+interface RecordingStateMaintenanceResult {
+  candidates: number
+  queued: number
+  skipped: number
+  items: RecordingStateMaintenanceItem[]
+}
+
+interface OffscreenRuntimeStatus {
+  recording: boolean
+  recordingStartedAt: number | null
+  currentLocalId: string | null
+  currentStatus: RecordingUploadStatus | null
+  uploadWorkerRunning: boolean
+  queuedUploads: number
+}
+
+interface LocalMaintenanceResult {
+  ranAt: string
+  offscreenStatus: OffscreenRuntimeStatus
+  recordingStateQueueSize: number
+  recordingStateSyncRunning: boolean
+  recordingStateSync: RecordingStateMaintenanceResult
+  lastRecordingStateSyncError: Record<string, unknown> | null
+  orphanedChunkDiagnostics: OrphanedChunkDiagnosticsResult
+  lastOrphanedChunkDiagnosticsError: Record<string, unknown> | null
+}
 
 function generateBackendRecordingId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -520,6 +597,18 @@ let stopRequested = false
 let stopFinalizeTimeoutId: number | null = null
 let currentRecordingId = 0
 const abandonedRecordingIds = new Set<number>()
+const closedSpoolLocalIds = new Set<string>()
+
+function buildOffscreenRuntimeStatus(): OffscreenRuntimeStatus {
+  return {
+    recording: capturing,
+    recordingStartedAt: capturing ? currentRecordingStartedAtMs : null,
+    currentLocalId: currentSpoolRecord?.localId ?? null,
+    currentStatus: currentSpoolRecord?.status ?? null,
+    uploadWorkerRunning,
+    queuedUploads: uploadQueue.length
+  }
+}
 
 interface RecordingContext {
   tabUrl?: string | null
@@ -706,11 +795,13 @@ function enqueueCurrentSpoolWrite(operation: () => Promise<void>): void {
 function saveRecorderChunk(asset: 'video_audio' | 'microphone', blob: Blob, mimeType: string): void {
   const record = currentSpoolRecord
   if (!record || !blob.size) return
+  if (closedSpoolLocalIds.has(record.localId)) return
   const sequence = asset === 'video_audio'
     ? currentVideoChunkSequence++
     : currentMicrophoneChunkSequence++
 
   enqueueCurrentSpoolWrite(async () => {
+    if (closedSpoolLocalIds.has(record.localId)) return
     const sizeBytes = await appendSpoolChunk({
       localId: record.localId,
       asset,
@@ -724,7 +815,15 @@ function saveRecorderChunk(asset: 'video_audio' | 'microphone', blob: Blob, mime
 }
 
 function withBackendRecordingId(item: RecordingHistoryItem): RecordingHistoryItem {
-  if (resolveExtensionRecordingId(item)) return item
+  const recordingId = resolveExtensionRecordingId(item)
+  if (recordingId && item.backendRecordingId === recordingId) return item
+  if (recordingId) {
+    return {
+      ...item,
+      backendRecordingId: recordingId,
+      updatedAt: new Date().toISOString()
+    }
+  }
   return {
     ...item,
     backendRecordingId: generateBackendRecordingId(),
@@ -802,6 +901,37 @@ async function queueRecordingStateSync(item: RecordingHistoryItem): Promise<Reco
   return syncItem
 }
 
+function shouldRemoveSyncedTerminalLocalHistoryItem(item: RecordingHistoryItem): boolean {
+  if (!item.backendRecordingId) return false
+  if (item.status === 'canceled') return true
+  return item.status === 'failed' && item.failureReason !== 'auth_required'
+}
+
+async function deleteLocalRecordingHistoryItem(localId: string): Promise<void> {
+  const response = await chrome.runtime.sendMessage({
+    type: 'DELETE_RECORDING_HISTORY_ITEM',
+    localId
+  }).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
+
+  if (response?.ok === false) {
+    captureMessage('Recording history item could not be deleted after backend archival.', 'warning', {
+      operation: 'deleteLocalRecordingHistoryItem',
+      localId,
+      error: typeof response.error === 'string' ? response.error : null
+    })
+  }
+}
+
+async function deleteLocalSpoolArtifacts(localId: string): Promise<void> {
+  closedSpoolLocalIds.add(localId)
+  await Promise.all([
+    deleteSpoolChunks(localId),
+    deleteSpoolRecording(localId)
+  ]).catch((e) => {
+    captureException(e, { operation: 'deleteLocalSpoolArtifacts', localId })
+  })
+}
+
 async function markRecordingStateSynced(
   item: RecordingHistoryItem,
   recordingId: string
@@ -835,25 +965,101 @@ async function markRecordingStateSynced(
     })
   }
 
+  if (shouldRemoveSyncedTerminalLocalHistoryItem(updatedItem)) {
+    if (currentSpoolRecord?.localId === updatedItem.localId || uploadQueue.some(entry => entry.localId === updatedItem.localId)) {
+      await persistHistoryItem(updatedItem, { syncState: false })
+      return
+    }
+    await deleteLocalSpoolArtifacts(updatedItem.localId)
+    await deleteLocalRecordingHistoryItem(updatedItem.localId)
+    return
+  }
+
   await persistHistoryItem(updatedItem, { syncState: false })
 }
 
-async function queueAllKnownRecordingStates(): Promise<void> {
+async function queueAllKnownRecordingStates(): Promise<RecordingStateMaintenanceResult> {
   const [spoolRecords, historyItems] = await Promise.all([
     listSpoolRecordings().catch((e) => {
       captureException(e, { operation: 'queueAllKnownRecordingStates.listSpoolRecordings' })
       return [] as RecordingSpoolRecord[]
     }),
-    readRecordingHistory().catch((e) => {
-      captureException(e, { operation: 'queueAllKnownRecordingStates.readRecordingHistory' })
+    readLocalRecordingHistory().catch((e) => {
+      captureException(e, { operation: 'queueAllKnownRecordingStates.readLocalRecordingHistory' })
       return [] as RecordingHistoryItem[]
     })
   ])
 
   const byLocalId = new Map<string, RecordingHistoryItem>()
+  const spoolByLocalId = new Map<string, RecordingSpoolRecord>()
   for (const item of historyItems) byLocalId.set(item.localId, item)
-  for (const record of spoolRecords) byLocalId.set(record.localId, record)
-  for (const item of byLocalId.values()) await queueRecordingStateSync(item)
+  for (const record of spoolRecords) {
+    spoolByLocalId.set(record.localId, record)
+    byLocalId.set(record.localId, record)
+  }
+
+  const summary: RecordingStateMaintenanceResult = {
+    candidates: 0,
+    queued: 0,
+    skipped: 0,
+    items: []
+  }
+
+  for (const item of byLocalId.values()) {
+    const normalizedItem = normalizeRecordingHistoryItem(item)
+    if (!normalizedItem) continue
+    const mutable = isExtensionMutableRecordingStatus(normalizedItem.status)
+    const syncCandidate = mutable ? withBackendRecordingId(normalizedItem) : normalizedItem
+    const resolvedRecordingId = mutable ? resolveExtensionRecordingId(syncCandidate) : null
+    summary.candidates += 1
+
+    if (!mutable) {
+      const localSpoolRecord = spoolByLocalId.get(normalizedItem.localId)
+      if (localSpoolRecord?.backendRecordingId && !isCurrentOrQueuedLocalId(normalizedItem.localId)) {
+        await deleteLocalSpoolArtifacts(normalizedItem.localId)
+      }
+      summary.skipped += 1
+      summary.items.push({
+        localId: normalizedItem.localId,
+        status: normalizedItem.status,
+        backendRecordingIdBefore: normalizedItem.backendRecordingId,
+        backendRecordingIdAfter: normalizedItem.backendRecordingId,
+        resolvedRecordingId,
+        action: 'skipped',
+        reason: 'backend_owned_status'
+      })
+      continue
+    }
+
+    if (!resolvedRecordingId) {
+      summary.skipped += 1
+      summary.items.push({
+        localId: normalizedItem.localId,
+        status: normalizedItem.status,
+        backendRecordingIdBefore: normalizedItem.backendRecordingId,
+        backendRecordingIdAfter: normalizedItem.backendRecordingId,
+        resolvedRecordingId,
+        action: 'skipped',
+        reason: 'missing_backend_compatible_recording_id'
+      })
+      await queueRecordingStateSync(normalizedItem)
+      continue
+    }
+
+    summary.queued += 1
+    summary.items.push({
+      localId: normalizedItem.localId,
+      status: normalizedItem.status,
+      backendRecordingIdBefore: normalizedItem.backendRecordingId,
+      backendRecordingIdAfter: null,
+      resolvedRecordingId,
+      action: 'queued',
+      reason: null
+    })
+    await queueRecordingStateSync(normalizedItem)
+  }
+
+  return summary
 }
 
 async function runRecordingStateSyncWorker(): Promise<void> {
@@ -867,11 +1073,21 @@ async function runRecordingStateSyncWorker(): Promise<void> {
         extensionToken = await requestMeet2NoteExtensionToken()
       } catch (e) {
         if (isMeet2NoteAuthError(e)) {
+          lastRecordingStateSyncError = {
+            at: new Date().toISOString(),
+            stage: 'auth',
+            message: e.message
+          }
           await chrome.runtime.sendMessage({
             type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
             message: e.message
           }).catch(() => {})
         } else {
+          lastRecordingStateSyncError = {
+            at: new Date().toISOString(),
+            stage: 'auth',
+            message: e instanceof Error ? e.message : String(e)
+          }
           captureException(e, { operation: 'runRecordingStateSyncWorker.auth' })
         }
         return
@@ -883,10 +1099,18 @@ async function runRecordingStateSyncWorker(): Promise<void> {
           const result = await syncExtensionRecordingState(item, extensionToken)
           if (recordingStateSyncQueue.get(recordingId) === item) {
             recordingStateSyncQueue.delete(recordingId)
+            lastRecordingStateSyncError = null
             await markRecordingStateSynced(item, result.recordingId)
           }
         } catch (e) {
           if (isMeet2NoteAuthError(e)) {
+            lastRecordingStateSyncError = {
+              at: new Date().toISOString(),
+              stage: 'sync_auth',
+              localId: item.localId,
+              status: item.status,
+              message: e.message
+            }
             await chrome.runtime.sendMessage({
               type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
               message: e.message
@@ -895,6 +1119,12 @@ async function runRecordingStateSyncWorker(): Promise<void> {
           }
 
           hadRetryableFailure = true
+          lastRecordingStateSyncError = {
+            at: new Date().toISOString(),
+            localId: item.localId,
+            status: item.status,
+            message: e instanceof Error ? e.message : String(e)
+          }
           captureException(e, {
             operation: 'runRecordingStateSyncWorker.sync',
             localId: item.localId,
@@ -1067,7 +1297,8 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
         error: null,
         uploadProgressPercent: null
       })
-      retainTerminalSpoolEntry(entry.localId, 'uploadQueueEntryUntilTerminal.retainUploaded')
+      await deleteLocalSpoolArtifacts(entry.localId)
+      await deleteLocalRecordingHistoryItem(entry.localId)
       removeQueueEntry(entry.localId)
       log('Upload completed', { localId: entry.localId, recordingId: result.recordingId, assets: result.assets, attempt })
       return 'done'
@@ -1215,7 +1446,8 @@ async function assertSpoolCapacityBeforeRecording(): Promise<void> {
 }
 
 async function markInterruptedSpoolRecordings(): Promise<void> {
-  const interrupted = await listInterruptedSpoolRecordings()
+  const interrupted = (await listInterruptedSpoolRecordings())
+    .filter(record => !isCurrentOrQueuedLocalId(record.localId))
   for (const record of interrupted) {
     const counts = await getSpoolChunkCounts(record.localId).catch(() => ({ video_audio: 0, microphone: 0 }))
     const message = counts.video_audio > 0
@@ -1229,7 +1461,11 @@ async function markInterruptedSpoolRecordings(): Promise<void> {
 }
 
 async function readLocalRecordingHistory(): Promise<RecordingHistoryItem[]> {
-  return readRecordingHistory()
+  const response = await chrome.runtime.sendMessage({ type: 'READ_LOCAL_RECORDING_HISTORY' })
+  if (response?.ok === false) {
+    throw new Error(response.error || 'Could not read local recording history.')
+  }
+  return normalizeRecordingHistory(response?.items)
 }
 
 async function markOrphanedPendingHistoryItems(uploadableSpoolLocalIds: Set<string>): Promise<void> {
@@ -1296,7 +1532,9 @@ function buildOrphanedChunkDiagnosticEvent(
       assets: group.assets,
       extension: {
         id: chrome.runtime.id,
-        version: chrome.runtime.getManifest().version
+        version: typeof __EXTENSION_VERSION__ === 'string' && __EXTENSION_VERSION__.trim()
+          ? __EXTENSION_VERSION__
+          : 'unknown'
       },
       historyItem: historyContextForDiagnostic(historyItem)
     }
@@ -1307,26 +1545,54 @@ function isCurrentOrQueuedLocalId(localId: string): boolean {
   return currentSpoolRecord?.localId === localId || uploadQueue.some(entry => entry.localId === localId)
 }
 
-async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
-  if (orphanedChunkDiagnosticsRunning) return
+async function reportAndDeleteOrphanedSpoolChunks(
+  options: { force?: boolean } = {}
+): Promise<OrphanedChunkDiagnosticsResult> {
+  const result: OrphanedChunkDiagnosticsResult = {
+    skipped: false,
+    reason: null,
+    groups: 0,
+    reported: 0,
+    deleted: 0,
+    errors: 0,
+    items: []
+  }
+  if (orphanedChunkDiagnosticsRunning) {
+    return { ...result, skipped: true, reason: 'already_running' }
+  }
   const nowMs = Date.now()
-  if (nowMs - lastOrphanedChunkDiagnosticsStartedAtMs < ORPHANED_CHUNK_DIAGNOSTIC_INTERVAL_MS) return
+  if (!options.force && nowMs - lastOrphanedChunkDiagnosticsStartedAtMs < ORPHANED_CHUNK_DIAGNOSTIC_INTERVAL_MS) {
+    return { ...result, skipped: true, reason: 'throttled' }
+  }
   lastOrphanedChunkDiagnosticsStartedAtMs = nowMs
   orphanedChunkDiagnosticsRunning = true
 
   try {
     const groups = await listOrphanedSpoolChunkGroups({
-      gracePeriodMs: ORPHANED_CHUNK_REPORT_GRACE_PERIOD_MS
+      gracePeriodMs: options.force ? 0 : ORPHANED_CHUNK_REPORT_GRACE_PERIOD_MS
     }).catch((e) => {
+      result.errors += 1
+      lastOrphanedChunkDiagnosticsError = {
+        at: new Date().toISOString(),
+        stage: 'list',
+        message: e instanceof Error ? e.message : String(e)
+      }
       captureException(e, { operation: 'reportAndDeleteOrphanedSpoolChunks.listOrphanedSpoolChunkGroups' })
       return [] as OrphanedSpoolChunkGroup[]
     })
-    if (!groups.length) return
+    result.groups = groups.length
+    if (!groups.length) return result
 
     let extensionToken: string
     try {
       extensionToken = await requestMeet2NoteExtensionToken()
     } catch (e) {
+      result.errors += 1
+      lastOrphanedChunkDiagnosticsError = {
+        at: new Date().toISOString(),
+        stage: 'auth',
+        message: e instanceof Error ? e.message : String(e)
+      }
       if (isMeet2NoteAuthError(e)) {
         await chrome.runtime.sendMessage({
           type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
@@ -1335,17 +1601,33 @@ async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
       } else {
         captureException(e, { operation: 'reportAndDeleteOrphanedSpoolChunks.auth' })
       }
-      return
+      return result
     }
 
     const historyItems = await readLocalRecordingHistory().catch((e) => {
+      result.errors += 1
+      lastOrphanedChunkDiagnosticsError = {
+        at: new Date().toISOString(),
+        stage: 'history',
+        message: e instanceof Error ? e.message : String(e)
+      }
       captureException(e, { operation: 'reportAndDeleteOrphanedSpoolChunks.readRecordingHistory' })
       return [] as RecordingHistoryItem[]
     })
     const historyByLocalId = new Map(historyItems.map(item => [item.localId, item]))
 
     for (const group of groups) {
-      if (isCurrentOrQueuedLocalId(group.localId)) continue
+      if (isCurrentOrQueuedLocalId(group.localId)) {
+        result.items.push({
+          localId: group.localId,
+          chunks: group.chunks,
+          bytes: group.bytes,
+          firstChunkCreatedAt: group.firstChunkCreatedAt,
+          lastChunkCreatedAt: group.lastChunkCreatedAt,
+          status: 'skipped_current_or_queued'
+        })
+        continue
+      }
       const currentRecord = await getSpoolRecording(group.localId).catch((e) => {
         captureException(e, {
           operation: 'reportAndDeleteOrphanedSpoolChunks.getSpoolRecording',
@@ -1353,15 +1635,36 @@ async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
         })
         return null
       })
-      if (currentRecord) continue
+      if (currentRecord) {
+        result.items.push({
+          localId: group.localId,
+          chunks: group.chunks,
+          bytes: group.bytes,
+          firstChunkCreatedAt: group.firstChunkCreatedAt,
+          lastChunkCreatedAt: group.lastChunkCreatedAt,
+          status: 'skipped_restored_spool_record'
+        })
+        continue
+      }
 
       try {
         await reportExtensionDiagnostic(
           buildOrphanedChunkDiagnosticEvent(group, historyByLocalId.get(group.localId)),
           extensionToken
         )
+        result.reported += 1
 
-        if (isCurrentOrQueuedLocalId(group.localId)) continue
+        if (isCurrentOrQueuedLocalId(group.localId)) {
+          result.items.push({
+            localId: group.localId,
+            chunks: group.chunks,
+            bytes: group.bytes,
+            firstChunkCreatedAt: group.firstChunkCreatedAt,
+            lastChunkCreatedAt: group.lastChunkCreatedAt,
+            status: 'reported_skipped_current_or_queued'
+          })
+          continue
+        }
         const recordAfterReport = await getSpoolRecording(group.localId).catch((e) => {
           captureException(e, {
             operation: 'reportAndDeleteOrphanedSpoolChunks.getSpoolRecordingAfterReport',
@@ -1369,9 +1672,29 @@ async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
           })
           return null
         })
-        if (recordAfterReport) continue
+        if (recordAfterReport) {
+          result.items.push({
+            localId: group.localId,
+            chunks: group.chunks,
+            bytes: group.bytes,
+            firstChunkCreatedAt: group.firstChunkCreatedAt,
+            lastChunkCreatedAt: group.lastChunkCreatedAt,
+            status: 'reported_skipped_restored_spool_record'
+          })
+          continue
+        }
 
         await deleteSpoolChunkKeys(group.chunkKeys)
+        result.deleted += 1
+        lastOrphanedChunkDiagnosticsError = null
+        result.items.push({
+          localId: group.localId,
+          chunks: group.chunks,
+          bytes: group.bytes,
+          firstChunkCreatedAt: group.firstChunkCreatedAt,
+          lastChunkCreatedAt: group.lastChunkCreatedAt,
+          status: 'reported_deleted'
+        })
         captureMessage('Deleted orphaned local spool chunks after backend diagnostic acknowledgement.', 'info', {
           operation: 'reportAndDeleteOrphanedSpoolChunks',
           localId: group.localId,
@@ -1381,12 +1704,28 @@ async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
           lastChunkCreatedAt: group.lastChunkCreatedAt
         })
       } catch (e) {
+        result.errors += 1
+        lastOrphanedChunkDiagnosticsError = {
+          at: new Date().toISOString(),
+          stage: 'report_or_delete',
+          localId: group.localId,
+          message: e instanceof Error ? e.message : String(e)
+        }
+        result.items.push({
+          localId: group.localId,
+          chunks: group.chunks,
+          bytes: group.bytes,
+          firstChunkCreatedAt: group.firstChunkCreatedAt,
+          lastChunkCreatedAt: group.lastChunkCreatedAt,
+          status: 'error',
+          error: e instanceof Error ? e.message : String(e)
+        })
         if (isMeet2NoteAuthError(e)) {
           await chrome.runtime.sendMessage({
             type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
             message: e.message
           }).catch(() => {})
-          return
+          return result
         }
         captureException(e, {
           operation: 'reportAndDeleteOrphanedSpoolChunks.reportOrDelete',
@@ -1396,6 +1735,7 @@ async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
         })
       }
     }
+    return result
   } finally {
     orphanedChunkDiagnosticsRunning = false
   }
@@ -1471,6 +1811,56 @@ async function restoreUploadQueueFromSpoolOnce(): Promise<void> {
       log('Unexpected restored upload queue worker failure', e)
       captureException(e, { operation: 'restoreUploadQueueFromSpool.runUploadQueueWorker' })
     })
+  }
+}
+
+async function runLocalMaintenanceNow(): Promise<LocalMaintenanceResult> {
+  if (capturing || currentSpoolRecord) {
+    return {
+      ranAt: new Date().toISOString(),
+      offscreenStatus: buildOffscreenRuntimeStatus(),
+      recordingStateQueueSize: recordingStateSyncQueue.size,
+      recordingStateSyncRunning: recordingStateSyncWorkerRunning,
+      recordingStateSync: {
+        candidates: 0,
+        queued: 0,
+        skipped: 0,
+        items: []
+      },
+      lastRecordingStateSyncError,
+      orphanedChunkDiagnostics: {
+        skipped: true,
+        reason: 'active_recording',
+        groups: 0,
+        reported: 0,
+        deleted: 0,
+        errors: 0,
+        items: []
+      },
+      lastOrphanedChunkDiagnosticsError
+    }
+  }
+
+  await markInterruptedSpoolRecordings()
+  const recordingStateSync = await queueAllKnownRecordingStates()
+  await waitForRecordingStateSyncIdle(DEBUG_MAINTENANCE_SYNC_WAIT_TIMEOUT_MS)
+  const historyAfterSync = new Map((await readLocalRecordingHistory()).map(item => [item.localId, item]))
+  for (const item of recordingStateSync.items) {
+    item.backendRecordingIdAfter = historyAfterSync.has(item.localId)
+      ? historyAfterSync.get(item.localId)?.backendRecordingId ?? null
+      : null
+  }
+  const orphanedChunkDiagnostics = await reportAndDeleteOrphanedSpoolChunks({ force: true })
+
+  return {
+    ranAt: new Date().toISOString(),
+    offscreenStatus: buildOffscreenRuntimeStatus(),
+    recordingStateQueueSize: recordingStateSyncQueue.size,
+    recordingStateSyncRunning: recordingStateSyncWorkerRunning,
+    recordingStateSync,
+    lastRecordingStateSyncError,
+    orphanedChunkDiagnostics,
+    lastOrphanedChunkDiagnosticsError
   }
 }
 
@@ -1695,6 +2085,7 @@ async function prepareAndRecord(
   const mime = chooseVideoMime()
   const microphoneMime = chooseMicrophoneMime()
   const localId = generateRecordingLocalId()
+  closedSpoolLocalIds.delete(localId)
   currentVideoChunkSequence = 0
   currentMicrophoneChunkSequence = 0
   currentVideoBytes = 0
@@ -1967,16 +2358,9 @@ async function handleOffscreenPortMessage(msg: any): Promise<void> {
     }
 
     if (msg?.type === 'OFFSCREEN_STATUS') {
-      let recording = false
-      try {
-        const res = await (chrome.storage as any)?.session?.get?.(['recording'])
-        recording = !!res?.recording
-      } catch {}
       const historyResponse = await chrome.runtime.sendMessage({ type: 'READ_RECORDING_HISTORY' }).catch(() => null)
       return respond(msg, {
-        recording,
-        uploadWorkerRunning,
-        queuedUploads: uploadQueue.length,
+        ...buildOffscreenRuntimeStatus(),
         items: Array.isArray(historyResponse?.items) ? historyResponse.items : uploadQueue.map(toHistoryItem)
       })
     }
@@ -1989,6 +2373,11 @@ async function handleOffscreenPortMessage(msg: any): Promise<void> {
     if (msg?.type === 'OFFSCREEN_RESTORE_UPLOAD_QUEUE') {
       await restoreUploadQueueFromSpool()
       return respond(msg, { ok: true })
+    }
+
+    if (msg?.type === 'OFFSCREEN_RUN_LOCAL_MAINTENANCE') {
+      const result = await runLocalMaintenanceNow()
+      return respond(msg, { ok: true, result })
     }
 
     if (msg?.type === 'DIAG_ECHO') {

@@ -13,6 +13,7 @@ import {
   normalizeRecordingHistory,
   POPUP_RECORDING_HISTORY_LIMIT,
   readRecordingHistory,
+  updateRecordingHistory,
   upsertRecordingHistoryItem,
   type RecordingHistoryItem
 } from './recordingHistory'
@@ -40,7 +41,10 @@ const BACKEND_RECORDINGS_REFRESH_THROTTLE_MS = 15_000
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 const DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS = 15_000
+const LOCAL_MAINTENANCE_OFFSCREEN_RESPONSE_TIMEOUT_MS = 60_000
 const STOP_OFFSCREEN_RESPONSE_TIMEOUT_MS = 3_000
+const EXTENSION_LOCAL_RECORDING_FAILURE_STAGE = 'local_recording'
+const EXTENSION_ORPHANED_CHUNKS_FAILURE_STAGE = 'local_spool_orphaned_chunks'
 type CaptureSource = 'tab' | 'desktop'
 
 interface CaptureStreamRequest {
@@ -164,10 +168,35 @@ async function hydrateRecentRecordings(): Promise<RecordingHistoryItem[]> {
 }
 
 async function refreshRecentRecordingsFromBackend(): Promise<RecordingHistoryItem[]> {
-  const localHistory = await readRecordingHistory()
   backendRecordings = await readBackendRecordingHistory()
+  const localHistory = await pruneBackendOwnedLocalHistory(await readRecordingHistory(), backendRecordings)
   recentRecordings = mergeRecordingHistory(localHistory, backendRecordings).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
   return recentRecordings
+}
+
+async function pruneBackendOwnedLocalHistory(
+  localHistory: RecordingHistoryItem[],
+  backendHistory: RecordingHistoryItem[]
+): Promise<RecordingHistoryItem[]> {
+  if (!backendHistory.length) return localHistory
+
+  const backendIds = new Set(
+    backendHistory
+      .map(item => item.backendRecordingId)
+      .filter((backendId): backendId is string => typeof backendId === 'string' && backendId.length > 0)
+  )
+  if (!backendIds.size) return localHistory
+
+  let changed = false
+  const pruned = localHistory.filter((item) => {
+    if (!item.backendRecordingId || !backendIds.has(item.backendRecordingId)) return true
+    if (isLocalOnlyPopupHistoryItem(item)) return true
+    changed = true
+    return false
+  })
+  if (!changed) return localHistory
+
+  return updateRecordingHistory(() => pruned)
 }
 
 function backendRecordingToHistoryItem(recording: BackendRecordingListItem): RecordingHistoryItem {
@@ -193,17 +222,28 @@ function backendRecordingToHistoryItem(recording: BackendRecordingListItem): Rec
   }
 }
 
+function shouldShowBackendRecordingInExtension(recording: BackendRecordingListItem): boolean {
+  if (recording.status !== 'failed') return true
+  if (recording.failureStage === EXTENSION_ORPHANED_CHUNKS_FAILURE_STAGE) return false
+  if (
+    recording.failureStage === EXTENSION_LOCAL_RECORDING_FAILURE_STAGE &&
+    recording.failureMessage?.includes('Local recording id:')
+  ) {
+    return false
+  }
+  return true
+}
+
 async function readBackendRecordingHistory(): Promise<RecordingHistoryItem[]> {
   const token = await getMeet2NoteExtensionToken().catch(() => null)
   if (!token) return []
 
   try {
     const recordings = await listMeet2NoteRecordings(token)
-    return recordings.map(backendRecordingToHistoryItem)
+    return recordings
+      .filter(shouldShowBackendRecordingInExtension)
+      .map(backendRecordingToHistoryItem)
   } catch (e) {
-    if (isMeet2NoteAuthError(e)) {
-      await markMeet2NoteReconnectRequired(e.message).catch(() => {})
-    }
     bglog('Backend recordings list failed', e)
     captureException(e, { operation: 'readBackendRecordingHistory' })
     return []
@@ -258,10 +298,10 @@ function mergeRecordingHistory(
     (!item.backendRecordingId || !backendIds.has(item.backendRecordingId))
   ))
 
-  return [
+  return sortRecordingHistoryForDisplay([
     ...localOnlyActionableHistory,
     ...backendMergedHistory
-  ]
+  ])
 }
 
 function mergedRecordingTitle(existing: RecordingHistoryItem, backendItem: RecordingHistoryItem): string {
@@ -269,6 +309,30 @@ function mergedRecordingTitle(existing: RecordingHistoryItem, backendItem: Recor
     return backendItem.title
   }
   return existing.title || backendItem.title
+}
+
+function recordingDisplayTimestamp(item: RecordingHistoryItem): number {
+  const primary = Date.parse(item.startedAt || item.createdAt)
+  if (Number.isFinite(primary)) return primary
+  const fallback = Date.parse(item.createdAt || item.updatedAt)
+  return Number.isFinite(fallback) ? fallback : 0
+}
+
+function recordingCreatedTimestamp(item: RecordingHistoryItem): number {
+  const createdAt = Date.parse(item.createdAt)
+  return Number.isFinite(createdAt) ? createdAt : 0
+}
+
+function recordingStableSortId(item: RecordingHistoryItem): string {
+  return item.backendRecordingId || item.localId
+}
+
+function sortRecordingHistoryForDisplay(items: RecordingHistoryItem[]): RecordingHistoryItem[] {
+  return [...items].sort((a, b) =>
+    recordingDisplayTimestamp(b) - recordingDisplayTimestamp(a) ||
+    recordingCreatedTimestamp(b) - recordingCreatedTimestamp(a) ||
+    recordingStableSortId(b).localeCompare(recordingStableSortId(a))
+  )
 }
 
 function isLocalOnlyPopupHistoryItem(item: RecordingHistoryItem): boolean {
@@ -332,19 +396,44 @@ async function hasPendingLocalUploadInHistory(): Promise<boolean> {
   }
 }
 
-function wakeOffscreenForPendingUploads(): void {
-  void hasPendingLocalUploadInHistory()
-    .then(async (hasPendingUploads) => {
-      if (!hasPendingUploads) return undefined
-      await ensureOffscreen()
-      if (offscreenPort) {
-        return postToOffscreen({ type: 'OFFSCREEN_RESTORE_UPLOAD_QUEUE' }).catch(() => undefined)
-      }
+async function runOffscreenLocalMaintenance(): Promise<unknown> {
+  await ensureOffscreen()
+  if (offscreenPort) {
+    const response = await postToOffscreen(
+      { type: 'OFFSCREEN_RUN_LOCAL_MAINTENANCE' },
+      LOCAL_MAINTENANCE_OFFSCREEN_RESPONSE_TIMEOUT_MS
+    ).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
+    return response
+  }
+  return { ok: false, error: 'Offscreen port not connected' }
+}
+
+async function readOffscreenRecordingStatus(): Promise<Record<string, unknown> | null> {
+  if (!offscreenPort && !await hasOffscreenContext().catch(() => false)) return null
+  await ensureOffscreen()
+  if (!offscreenPort) return null
+  const response = await postToOffscreen(
+    { type: 'OFFSCREEN_STATUS' },
+    DEFAULT_OFFSCREEN_RESPONSE_TIMEOUT_MS
+  ).catch(() => null)
+  return response && typeof response === 'object'
+    ? response as Record<string, unknown>
+    : null
+}
+
+function wakeOffscreenForLocalMaintenance(): void {
+  void Promise.all([
+    hasPendingLocalUploadInHistory(),
+    getMeet2NoteExtensionToken().catch(() => null)
+  ])
+    .then(async ([hasPendingUploads, token]) => {
+      if (!hasPendingUploads && !token) return undefined
+      await runOffscreenLocalMaintenance()
       return undefined
     })
     .catch((e) => {
-      bglog('Failed to wake offscreen for active uploads', e)
-      captureException(e, { operation: 'wakeOffscreenForPendingUploads' })
+      bglog('Failed to wake offscreen for local maintenance', e)
+      captureException(e, { operation: 'wakeOffscreenForLocalMaintenance' })
     })
 }
 
@@ -825,12 +914,39 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         lastRecordingError = typeof sessionState?.lastRecordingError === 'string'
           ? sessionState.lastRecordingError
           : null
+
+        const offscreenStatus = await readOffscreenRecordingStatus()
+        if (offscreenStatus) {
+          const offscreenRecording = !!offscreenStatus.recording
+          const offscreenStartedAt = typeof offscreenStatus.recordingStartedAt === 'number'
+            ? offscreenStatus.recordingStartedAt
+            : null
+          if (offscreenRecording) {
+            lastKnownRecording = true
+            recordingStarting = false
+            recordingStopping = false
+            if (offscreenStartedAt) recordingStartedAt = offscreenStartedAt
+            if (!recordingStartedAt) recordingStartedAt = Date.now()
+            persistRecordingState(true, recordingStartedAt)
+            setBadge(true, currentRecordingTabId)
+          } else if (!recordingStarting && !recordingStopping) {
+            lastKnownRecording = false
+            recordingStartedAt = null
+            persistRecordingState(false, null)
+          }
+        }
+
         if (!lastKnownRecording && !recordingStarting && !recordingStopping) {
           clearRecordingBadges(currentRecordingTabId)
         }
         await refreshRecentRecordingsForPopup()
+        if (msg.forceBackendRefresh === true) {
+          await scheduleBackendRecordingsRefresh(true)
+        }
       } catch {}
-      wakeOffscreenForPendingUploads()
+      if (!lastKnownRecording && !recordingStarting && !recordingStopping) {
+        wakeOffscreenForLocalMaintenance()
+      }
       sendResponse({
         recording: lastKnownRecording,
         recordingStartedAt,
@@ -870,6 +986,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return
     }
 
+    if (msg?.type === 'DEBUG_RUN_LOCAL_MAINTENANCE') {
+      try {
+        const result = await runOffscreenLocalMaintenance()
+        sendResponse(result)
+      } catch (e: any) {
+        captureException(e, { operation: 'DEBUG_RUN_LOCAL_MAINTENANCE' })
+        sendResponse({ ok: false, error: e?.message || String(e) })
+      }
+      return
+    }
+
     if (msg?.type === 'UPSERT_RECORDING_HISTORY_ITEM') {
       const [item] = normalizeRecordingHistory([msg.item])
       if (!item) {
@@ -897,11 +1024,43 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       try {
         await hydrateRecentRecordings()
         scheduleBackendRecordingsRefresh()
-        wakeOffscreenForPendingUploads()
+        wakeOffscreenForLocalMaintenance()
         sendResponse({ ok: true, items: recentRecordings })
       } catch (e: any) {
         captureException(e, { operation: 'READ_RECORDING_HISTORY' })
         sendResponse({ ok: false, error: e?.message || String(e), items: recentRecordings })
+      }
+      return
+    }
+
+    if (msg?.type === 'DELETE_RECORDING_HISTORY_ITEM') {
+      const localId = typeof msg.localId === 'string' ? msg.localId.trim() : ''
+      if (!localId) {
+        sendResponse({ ok: false, error: 'Invalid recording localId' })
+        return
+      }
+
+      try {
+        const localHistory = await updateRecordingHistory((history) =>
+          history.filter(item => item.localId !== localId)
+        )
+        recentRecordings = mergeRecordingHistory(localHistory, backendRecordings).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
+        broadcastUploadQueueState()
+        sendResponse({ ok: true, items: recentRecordings })
+      } catch (e: any) {
+        captureException(e, { operation: 'DELETE_RECORDING_HISTORY_ITEM', localId })
+        sendResponse({ ok: false, error: e?.message || String(e) })
+      }
+      return
+    }
+
+    if (msg?.type === 'READ_LOCAL_RECORDING_HISTORY') {
+      try {
+        const items = await readRecordingHistory()
+        sendResponse({ ok: true, items })
+      } catch (e: any) {
+        captureException(e, { operation: 'READ_LOCAL_RECORDING_HISTORY' })
+        sendResponse({ ok: false, error: e?.message || String(e), items: [] })
       }
       return
     }
@@ -933,7 +1092,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   const tokenChange = changes[MEET2NOTE_EXTENSION_TOKEN_KEY]
   if (!tokenChange || typeof tokenChange.newValue !== 'string' || !tokenChange.newValue.trim()) return
   if (!offscreenPort) {
-    wakeOffscreenForPendingUploads()
+    wakeOffscreenForLocalMaintenance()
     return
   }
 
@@ -943,9 +1102,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   })
 })
 
-chrome.runtime.onSuspend?.addListener(async () => {
-  try { if (offscreenPort) await postToOffscreen({ type: 'OFFSCREEN_STOP' }) } catch {}
-  clearRecordingBadges(currentRecordingTabId)
+chrome.runtime.onSuspend?.addListener(() => {
+  persistRecordingState(lastKnownRecording, recordingStartedAt)
 })
 
 async function hydrateRecordingRuntimeState(): Promise<void> {
@@ -992,7 +1150,7 @@ async function initializeRecentRecordings(): Promise<void> {
   await hydrateRecordingRuntimeState()
   await hydrateRecentRecordings()
   scheduleBackendRecordingsRefresh()
-  wakeOffscreenForPendingUploads()
+  wakeOffscreenForLocalMaintenance()
 }
 
 void initializeRecentRecordings().catch((e) => {
