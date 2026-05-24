@@ -103,9 +103,11 @@ Ten plik definiuje zasady dla agentow AI i automatyzacji pracujacych w tym repoz
 
 1. Jesli zmiana w tym repozytorium wymaga pracy po stronie `recording-backend`, utworz issue w repozytorium backendu z konkretnym zakresem, kontekstem i kryteriami akceptacji.
 2. Jesli zmiana w `recording-backend` wymaga pracy po stronie tej wtyczki, oczekiwanym miejscem przekazania pracy jest issue w tym repozytorium.
-3. W issue linkuj odpowiednia specyfikacje, kontrakt albo PR, jesli istnieje.
-4. Gdy podczas pracy widzisz, ze po drugiej stronie integracji potrzebna jest zmiana, od razu utworz issue w odpowiednim repozytorium i poinformuj czlowieka, ze issue zostalo zalozone.
-5. Nie zakladaj, ze ustalenia z rozmowy sa wystarczajaca dokumentacja zaleznosci miedzy projektami.
+3. Zadania integracyjne rozdzielaj na jawna czesc wtyczki i jawna czesc backendu; jesli obie strony sa potrzebne do dzialania calosci, utrzymuj osobne issue w obu repozytoriach.
+4. Powiazane issue w repozytoriach wtyczki i backendu musza linkowac do siebie nawzajem, z opisem ktora strona blokuje albo domyka druga.
+5. Gdy podczas pracy widzisz, ze po drugiej stronie integracji potrzebna jest zmiana, od razu utworz issue w odpowiednim repozytorium i poinformuj czlowieka, ze issue zostalo zalozone.
+6. W issue linkuj odpowiednia specyfikacje, kontrakt albo PR, jesli istnieje.
+7. Nie zakladaj, ze ustalenia z rozmowy sa wystarczajaca dokumentacja zaleznosci miedzy projektami.
 
 ## Skrot `+PR`
 

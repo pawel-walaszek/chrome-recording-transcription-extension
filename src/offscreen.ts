@@ -10,17 +10,23 @@ import { uploadRecordingOnce, type UploadRecordingInput, type UploadSessionState
 import {
   generateRecordingLocalId,
   normalizeRecordingHistoryItem,
+  readRecordingHistory,
   type RecordingHistoryItem,
   type RecordingUploadStatus
 } from './recordingHistory'
 import {
+  isExtensionMutableRecordingStatus,
+  resolveExtensionRecordingId,
+  syncExtensionRecordingState
+} from './recordingStateSync'
+import {
   appendSpoolChunk,
   assertSpoolAvailable,
   createSpoolRecording,
-  deleteSpoolChunks,
-  deleteSpoolRecording,
+  getSpoolRecording,
   getSpoolChunkCounts,
   listInterruptedSpoolRecordings,
+  listSpoolRecordings,
   listUploadableSpoolRecordings,
   readSpoolAssetBlob,
   SPOOL_SCHEMA_VERSION,
@@ -38,6 +44,7 @@ initDiagnostics('offscreen')
 const WANT_MIC_ASSET = true
 const MEDIA_CAPTURE_TIMEOUT_MS = 10_000
 const UPLOAD_RETRY_INTERVAL_MS = 15_000
+const RECORDING_STATE_SYNC_RETRY_INTERVAL_MS = 30_000
 const STOP_FINALIZE_TIMEOUT_MS = 10_000
 const MICROPHONE_STOP_TIMEOUT_MS = 2_000
 const MEDIA_RECORDER_TIMESLICE_MS = 5_000
@@ -128,6 +135,33 @@ function sleepUntilUploadQueueWakeOrTimeout(ms: number): Promise<void> {
   })
 }
 
+function wakeRecordingStateSyncWorker(): void {
+  const wake = recordingStateSyncWake
+  recordingStateSyncWake = null
+  if (wake) wake()
+}
+
+function sleepUntilRecordingStateSyncWakeOrTimeout(ms: number): Promise<void> {
+  let wake: (() => void) | null = null
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+  const wakePromise = new Promise<'wake'>((resolve) => {
+    wake = () => resolve('wake')
+    recordingStateSyncWake = wake
+  })
+  const timeoutPromise = new Promise<'timeout'>((resolve) => {
+    timeoutId = setTimeout(() => resolve('timeout'), ms)
+  })
+
+  return Promise.race([
+    timeoutPromise,
+    wakePromise
+  ]).then((result) => {
+    if (result === 'wake' && timeoutId) clearTimeout(timeoutId)
+    if (wake && recordingStateSyncWake === wake) recordingStateSyncWake = null
+  })
+}
+
 interface UploadQueueEntry extends RecordingHistoryItem {
   schemaVersion: number
   videoMimeType: string
@@ -135,10 +169,28 @@ interface UploadQueueEntry extends RecordingHistoryItem {
   uploadSession?: RecordingSpoolUploadSession | null
 }
 
+type CaptureSource = 'tab' | 'desktop'
+
 let uploadQueue: UploadQueueEntry[] = []
 let uploadWorkerRunning = false
 let uploadQueueWake: (() => void) | null = null
 let restoreUploadQueuePromise: Promise<void> | null = null
+let recordingStateSyncWorkerRunning = false
+let recordingStateSyncWake: (() => void) | null = null
+const recordingStateSyncQueue = new Map<string, RecordingHistoryItem>()
+
+function generateBackendRecordingId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
 
 function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
   const {
@@ -152,14 +204,28 @@ function toHistoryItem(entry: UploadQueueEntry): RecordingHistoryItem {
 }
 
 async function persistQueueEntry(entry: UploadQueueEntry): Promise<void> {
+  const normalizedHistory = normalizeRecordingHistoryItem(toHistoryItem(entry))
+  if (normalizedHistory &&
+    isExtensionMutableRecordingStatus(normalizedHistory.status) &&
+    !resolveExtensionRecordingId(normalizedHistory)) {
+    const backendRecordingId = generateBackendRecordingId()
+    Object.assign(entry, {
+      backendRecordingId,
+      updatedAt: new Date().toISOString()
+    })
+  }
+
+  const historyItem = toHistoryItem(entry)
   await updateSpoolRecording({
-    ...toHistoryItem(entry),
+    ...historyItem,
     schemaVersion: entry.schemaVersion,
     videoMimeType: entry.videoMimeType,
     microphoneMimeType: entry.microphoneMimeType,
     uploadSession: entry.uploadSession ?? null
   })
-  await persistHistoryItem(toHistoryItem(entry))
+
+  const syncItem = await queueRecordingStateSync(historyItem) ?? historyItem
+  await persistHistoryItem(syncItem, { syncState: false })
 }
 
 let activeStreams = new Set<MediaStream>()
@@ -370,14 +436,20 @@ function routeTabAudioToOutput(tabStream: MediaStream): void {
   }
 }
 
-// Buduje ograniczenia z użyciem streamId. Najpierw próbuje 'tab', potem 'desktop'.
-function makeConstraints(streamId: string, source: 'tab' | 'desktop'): MediaStreamConstraints {
+// Buduje ograniczenia z użyciem streamId przekazanego przez background.
+function makeConstraints(
+  streamId: string,
+  source: CaptureSource,
+  canRequestAudioTrack = true
+): MediaStreamConstraints {
   const mandatory = { chromeMediaSource: source, chromeMediaSourceId: streamId } as any
   return {
-    audio: {
-      mandatory,
-      optional: [{ googDisableLocalEcho: false }]
-    } as any,
+    audio: canRequestAudioTrack
+      ? {
+          mandatory,
+          optional: [{ googDisableLocalEcho: false }]
+        } as any
+      : false,
     video: {
       mandatory: {
         ...mandatory,
@@ -390,11 +462,23 @@ function makeConstraints(streamId: string, source: 'tab' | 'desktop'): MediaStre
 }
 
 // Próbuje nagrywać z użyciem streamId.
-async function captureWithStreamId(streamId: string): Promise<MediaStream> {
+async function captureWithStreamId(
+  streamId: string,
+  captureSource: CaptureSource,
+  canRequestAudioTrack = true
+): Promise<MediaStream> {
+  if (captureSource === 'desktop') {
+    log(`Attempting getUserMedia with streamId ${streamId} source= desktop`)
+    return await withStreamTimeout(
+      navigator.mediaDevices.getUserMedia(makeConstraints(streamId, 'desktop', canRequestAudioTrack)),
+      'desktop getUserMedia'
+    )
+  }
+
   try {
     log(`Attempting getUserMedia with streamId ${streamId} source= tab`)
     const s = await withStreamTimeout(
-      navigator.mediaDevices.getUserMedia(makeConstraints(streamId, 'tab')),
+      navigator.mediaDevices.getUserMedia(makeConstraints(streamId, 'tab', canRequestAudioTrack)),
       'tab getUserMedia'
     )
     return s
@@ -404,7 +488,7 @@ async function captureWithStreamId(streamId: string): Promise<MediaStream> {
   }
   log(`Attempting getUserMedia with streamId ${streamId} source= desktop`)
   return await withStreamTimeout(
-    navigator.mediaDevices.getUserMedia(makeConstraints(streamId, 'desktop')),
+    navigator.mediaDevices.getUserMedia(makeConstraints(streamId, 'desktop', canRequestAudioTrack)),
     'desktop getUserMedia'
   )
 }
@@ -540,8 +624,7 @@ async function buildUploadQueueEntryFromSpool(record: RecordingSpoolRecord): Pro
 
 async function markSpoolRecordFailedUnrecoverable(
   record: RecordingSpoolRecord,
-  message: string,
-  cleanupChunks = true
+  message: string
 ): Promise<RecordingSpoolRecord> {
   const failedRecord: RecordingSpoolRecord = {
     ...record,
@@ -553,17 +636,12 @@ async function markSpoolRecordFailedUnrecoverable(
   }
   await updateSpoolRecording(failedRecord)
   await persistHistoryItem(failedRecord)
-  if (cleanupChunks) await cleanupTerminalSpoolEntry(record.localId, 'markSpoolRecordFailedUnrecoverable.cleanup')
+  retainTerminalSpoolEntry(record.localId, 'markSpoolRecordFailedUnrecoverable.retain')
   return failedRecord
 }
 
-async function cleanupTerminalSpoolEntry(localId: string, operation: string): Promise<void> {
-  try {
-    await deleteSpoolChunks(localId)
-    await deleteSpoolRecording(localId)
-  } catch (e) {
-    captureException(e, { operation, localId })
-  }
+function retainTerminalSpoolEntry(localId: string, operation: string): void {
+  log('Retaining local recording spool entry', { localId, operation })
 }
 
 async function markCurrentSpoolLocalError(message: string): Promise<void> {
@@ -579,7 +657,7 @@ async function markCurrentSpoolLocalError(message: string): Promise<void> {
   }
   await updateSpoolRecording(currentSpoolRecord)
   await persistHistoryItem(currentSpoolRecord)
-  await cleanupTerminalSpoolEntry(localId, 'markCurrentSpoolLocalError.cleanup')
+  retainTerminalSpoolEntry(localId, 'markCurrentSpoolLocalError.retain')
 }
 
 async function uploadInputFromQueueEntry(entry: UploadQueueEntry): Promise<UploadRecordingInput> {
@@ -592,6 +670,7 @@ async function uploadInputFromQueueEntry(entry: UploadQueueEntry): Promise<Uploa
     : null
 
   return {
+    recordingId: resolveExtensionRecordingId(entry) ?? undefined,
     title: entry.title,
     meetingId: entry.meetingId,
     meetingTitle: entry.meetingTitle,
@@ -635,7 +714,199 @@ function saveRecorderChunk(asset: 'video_audio' | 'microphone', blob: Blob, mime
   })
 }
 
-async function persistHistoryItem(item: RecordingHistoryItem): Promise<RecordingHistoryItem[]> {
+function withBackendRecordingId(item: RecordingHistoryItem): RecordingHistoryItem {
+  if (resolveExtensionRecordingId(item)) return item
+  return {
+    ...item,
+    backendRecordingId: generateBackendRecordingId(),
+    updatedAt: new Date().toISOString()
+  }
+}
+
+async function storeGeneratedBackendRecordingId(item: RecordingHistoryItem): Promise<void> {
+  const queueEntry = uploadQueue.find(entry => entry.localId === item.localId)
+  if (queueEntry && queueEntry.backendRecordingId !== item.backendRecordingId) {
+    queueEntry.backendRecordingId = item.backendRecordingId
+    await updateSpoolRecording({
+      ...toHistoryItem(queueEntry),
+      schemaVersion: queueEntry.schemaVersion,
+      videoMimeType: queueEntry.videoMimeType,
+      microphoneMimeType: queueEntry.microphoneMimeType,
+      uploadSession: queueEntry.uploadSession ?? null
+    }).catch((e) => {
+      captureException(e, { operation: 'storeGeneratedBackendRecordingId.queueEntry', localId: item.localId })
+    })
+  }
+
+  if (currentSpoolRecord?.localId === item.localId && currentSpoolRecord.backendRecordingId !== item.backendRecordingId) {
+    currentSpoolRecord = {
+      ...currentSpoolRecord,
+      backendRecordingId: item.backendRecordingId,
+      updatedAt: item.updatedAt
+    }
+    await updateSpoolRecording(currentSpoolRecord).catch((e) => {
+      captureException(e, { operation: 'storeGeneratedBackendRecordingId.currentSpool', localId: item.localId })
+    })
+  }
+
+  const spoolRecord = await getSpoolRecording(item.localId).catch((e) => {
+    captureException(e, { operation: 'storeGeneratedBackendRecordingId.getSpoolRecording', localId: item.localId })
+    return null
+  })
+  if (spoolRecord && spoolRecord.backendRecordingId !== item.backendRecordingId) {
+    await updateSpoolRecording({
+      ...spoolRecord,
+      backendRecordingId: item.backendRecordingId,
+      updatedAt: item.updatedAt
+    }).catch((e) => {
+      captureException(e, { operation: 'storeGeneratedBackendRecordingId.spoolRecord', localId: item.localId })
+    })
+  }
+}
+
+async function queueRecordingStateSync(item: RecordingHistoryItem): Promise<RecordingHistoryItem | null> {
+  const normalizedItem = normalizeRecordingHistoryItem(item)
+  if (!normalizedItem || !isExtensionMutableRecordingStatus(normalizedItem.status)) return normalizedItem
+
+  const syncItem = withBackendRecordingId(normalizedItem)
+  const recordingId = resolveExtensionRecordingId(syncItem)
+  if (!recordingId) {
+    captureMessage('Recording state cannot be synchronized because no backend recording id could be generated.', 'warning', {
+      operation: 'queueRecordingStateSync',
+      localId: syncItem.localId,
+      status: syncItem.status
+    })
+    return syncItem
+  }
+
+  if (syncItem.backendRecordingId !== normalizedItem.backendRecordingId) {
+    await storeGeneratedBackendRecordingId(syncItem)
+    await persistHistoryItem(syncItem, { syncState: false })
+  }
+
+  recordingStateSyncQueue.set(recordingId, syncItem)
+  wakeRecordingStateSyncWorker()
+  void runRecordingStateSyncWorker().catch((e) => {
+    log('Unexpected recording state sync worker failure', e)
+    captureException(e, { operation: 'runRecordingStateSyncWorker.unhandled' })
+  })
+  return syncItem
+}
+
+async function markRecordingStateSynced(
+  item: RecordingHistoryItem,
+  recordingId: string
+): Promise<void> {
+  const updatedItem: RecordingHistoryItem = {
+    ...item,
+    backendRecordingId: recordingId
+  }
+
+  if (currentSpoolRecord?.localId === item.localId) {
+    currentSpoolRecord = {
+      ...currentSpoolRecord,
+      backendRecordingId: recordingId
+    }
+    await updateSpoolRecording(currentSpoolRecord).catch((e) => {
+      captureException(e, { operation: 'markRecordingStateSynced.currentSpool', localId: item.localId })
+    })
+  }
+
+  const queueEntry = uploadQueue.find(entry => entry.localId === item.localId)
+  if (queueEntry) {
+    queueEntry.backendRecordingId = recordingId
+    await updateSpoolRecording({
+      ...toHistoryItem(queueEntry),
+      schemaVersion: queueEntry.schemaVersion,
+      videoMimeType: queueEntry.videoMimeType,
+      microphoneMimeType: queueEntry.microphoneMimeType,
+      uploadSession: queueEntry.uploadSession ?? null
+    }).catch((e) => {
+      captureException(e, { operation: 'markRecordingStateSynced.queueEntry', localId: item.localId })
+    })
+  }
+
+  await persistHistoryItem(updatedItem, { syncState: false })
+}
+
+async function queueAllKnownRecordingStates(): Promise<void> {
+  const [spoolRecords, historyItems] = await Promise.all([
+    listSpoolRecordings().catch((e) => {
+      captureException(e, { operation: 'queueAllKnownRecordingStates.listSpoolRecordings' })
+      return [] as RecordingSpoolRecord[]
+    }),
+    readRecordingHistory().catch((e) => {
+      captureException(e, { operation: 'queueAllKnownRecordingStates.readRecordingHistory' })
+      return [] as RecordingHistoryItem[]
+    })
+  ])
+
+  const byLocalId = new Map<string, RecordingHistoryItem>()
+  for (const item of historyItems) byLocalId.set(item.localId, item)
+  for (const record of spoolRecords) byLocalId.set(record.localId, record)
+  for (const item of byLocalId.values()) await queueRecordingStateSync(item)
+}
+
+async function runRecordingStateSyncWorker(): Promise<void> {
+  if (recordingStateSyncWorkerRunning) return
+  recordingStateSyncWorkerRunning = true
+
+  try {
+    while (recordingStateSyncQueue.size > 0) {
+      let extensionToken: string
+      try {
+        extensionToken = await requestMeet2NoteExtensionToken()
+      } catch (e) {
+        if (isMeet2NoteAuthError(e)) {
+          await chrome.runtime.sendMessage({
+            type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
+            message: e.message
+          }).catch(() => {})
+        } else {
+          captureException(e, { operation: 'runRecordingStateSyncWorker.auth' })
+        }
+        return
+      }
+
+      let hadRetryableFailure = false
+      for (const [recordingId, item] of Array.from(recordingStateSyncQueue.entries())) {
+        try {
+          const result = await syncExtensionRecordingState(item, extensionToken)
+          if (recordingStateSyncQueue.get(recordingId) === item) {
+            recordingStateSyncQueue.delete(recordingId)
+            await markRecordingStateSynced(item, result.recordingId)
+          }
+        } catch (e) {
+          if (isMeet2NoteAuthError(e)) {
+            await chrome.runtime.sendMessage({
+              type: 'MARK_MEET2NOTE_RECONNECT_REQUIRED',
+              message: e.message
+            }).catch(() => {})
+            return
+          }
+
+          hadRetryableFailure = true
+          captureException(e, {
+            operation: 'runRecordingStateSyncWorker.sync',
+            localId: item.localId,
+            status: item.status
+          })
+        }
+      }
+
+      if (hadRetryableFailure) {
+        await sleepUntilRecordingStateSyncWakeOrTimeout(RECORDING_STATE_SYNC_RETRY_INTERVAL_MS)
+      }
+    }
+  } finally {
+    recordingStateSyncWorkerRunning = false
+  }
+}
+
+async function persistHistoryItem(
+  item: RecordingHistoryItem,
+  options: { syncState?: boolean } = {}
+): Promise<RecordingHistoryItem[]> {
   const normalizedItem = normalizeRecordingHistoryItem(item)
   if (!normalizedItem) {
     captureMessage('Recording history item could not be normalized; continuing with local spool state.', 'warning', {
@@ -646,30 +917,34 @@ async function persistHistoryItem(item: RecordingHistoryItem): Promise<Recording
     return [item]
   }
 
+  const itemToPersist = options.syncState === false
+    ? normalizedItem
+    : await queueRecordingStateSync(normalizedItem) ?? normalizedItem
+
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'UPSERT_RECORDING_HISTORY_ITEM',
-      item: normalizedItem
+      item: itemToPersist
     })
     if (response?.ok === false) {
       captureMessage('Recording history update rejected by background; continuing with local spool state.', 'warning', {
         operation: 'persistHistoryItem',
-        status: normalizedItem.status,
-        localId: normalizedItem.localId,
+        status: itemToPersist.status,
+        localId: itemToPersist.localId,
         error: typeof response.error === 'string' ? response.error : null
       })
-      return [normalizedItem]
+      return [itemToPersist]
     }
     return Array.isArray(response?.items)
       ? response.items as RecordingHistoryItem[]
-      : [normalizedItem]
+      : [itemToPersist]
   } catch (e) {
     captureException(e, {
       operation: 'persistHistoryItem',
-      status: normalizedItem.status,
-      localId: normalizedItem.localId
+      status: itemToPersist.status,
+      localId: itemToPersist.localId
     })
-    return [normalizedItem]
+    return [itemToPersist]
   }
 }
 
@@ -783,7 +1058,7 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
         error: null,
         uploadProgressPercent: null
       })
-      await cleanupTerminalSpoolEntry(entry.localId, 'uploadQueueEntryUntilTerminal.cleanupUploaded')
+      retainTerminalSpoolEntry(entry.localId, 'uploadQueueEntryUntilTerminal.retainUploaded')
       removeQueueEntry(entry.localId)
       log('Upload completed', { localId: entry.localId, recordingId: result.recordingId, assets: result.assets, attempt })
       return 'done'
@@ -797,7 +1072,7 @@ async function uploadQueueEntryUntilTerminal(entry: UploadQueueEntry): Promise<'
           nextRetryAt: null,
           uploadProgressPercent: null
         })
-        await cleanupTerminalSpoolEntry(entry.localId, 'uploadQueueEntryUntilTerminal.cleanupUnrecoverable')
+        retainTerminalSpoolEntry(entry.localId, 'uploadQueueEntryUntilTerminal.retainUnrecoverable')
         removeQueueEntry(entry.localId)
         log('Upload failed permanently because local recording data is missing', { localId: entry.localId, attempt })
         return 'done'
@@ -939,11 +1214,13 @@ async function markInterruptedSpoolRecordings(): Promise<void> {
       : INTERRUPTED_RECORDING_MESSAGE
     await markSpoolRecordFailedUnrecoverable(record, message)
   }
+  if (interrupted.length > 0) {
+    pushState(false, { warning: 'INTERRUPTED_RECORDING_RESTORED' })
+  }
 }
 
 async function readLocalRecordingHistory(): Promise<RecordingHistoryItem[]> {
-  const response = await chrome.runtime.sendMessage({ type: 'READ_RECORDING_HISTORY' }).catch(() => null)
-  return Array.isArray(response?.items) ? response.items as RecordingHistoryItem[] : []
+  return readRecordingHistory()
 }
 
 async function markOrphanedPendingHistoryItems(uploadableSpoolLocalIds: Set<string>): Promise<void> {
@@ -976,6 +1253,7 @@ async function restoreUploadQueueFromSpool(): Promise<void> {
 
 async function restoreUploadQueueFromSpoolOnce(): Promise<void> {
   await markInterruptedSpoolRecordings()
+  await queueAllKnownRecordingStates()
   const records = await listUploadableSpoolRecordings()
   await markOrphanedPendingHistoryItems(new Set(records.map(record => record.localId)))
   let restored = 0
@@ -1023,6 +1301,7 @@ async function restoreUploadQueueFromSpoolOnce(): Promise<void> {
 }
 
 async function requeueAuthRequiredUploads(): Promise<void> {
+  await queueAllKnownRecordingStates()
   let changed = false
   for (const entry of uploadQueue) {
     if (entry.status !== 'failed' || entry.failureReason !== 'auth_required') continue
@@ -1129,7 +1408,7 @@ function markCurrentSpoolFailedUnrecoverable(message: string): void {
   currentSpoolRecord = nextRecord
   void updateSpoolRecording(nextRecord).catch(() => {})
   void persistHistoryItem(nextRecord).catch(() => {})
-  void cleanupTerminalSpoolEntry(nextRecord.localId, 'markCurrentSpoolFailedUnrecoverable.cleanup')
+  retainTerminalSpoolEntry(nextRecord.localId, 'markCurrentSpoolFailedUnrecoverable.retain')
 }
 
 function forceClearStuckRecording(recordingId: number, reason: string, error?: unknown): void {
@@ -1413,6 +1692,8 @@ async function prepareAndRecord(
 
 async function startRecordingFromStreamId(
   streamId: string,
+  captureSource: CaptureSource,
+  canRequestAudioTrack: boolean,
   micPreferences: MicPreferences,
   recordingContext: RecordingContext
 ): Promise<RecordingStartInfo> {
@@ -1424,9 +1705,14 @@ async function startRecordingFromStreamId(
   }
   cleanupRecordingResources()
   try {
-    const baseStream = await captureWithStreamId(streamId)
+    const baseStream = await captureWithStreamId(streamId, captureSource, canRequestAudioTrack)
     return await prepareAndRecord(baseStream, micPreferences, recordingContext)
   } catch (e) {
+    if (currentSpoolRecord) {
+      await markCurrentSpoolLocalError(e instanceof Error ? e.message : String(e)).catch((markError) => {
+        captureException(markError, { operation: 'startRecordingFromStreamId.markCurrentSpoolLocalError' })
+      })
+    }
     cleanupRecordingResources()
     captureException(e, { operation: 'startRecordingFromStreamId' })
     mediaRecorder = null
@@ -1473,6 +1759,8 @@ async function handleOffscreenPortMessage(msg: any): Promise<void> {
     if (msg?.type === 'OFFSCREEN_START') {
       const streamId = msg.streamId as string | undefined
       if (!streamId) return respond(msg, { ok: false, error: 'Missing streamId' })
+      const captureSource = msg.captureSource === 'desktop' ? 'desktop' : 'tab'
+      const canRequestAudioTrack = msg.canRequestAudioTrack !== false
       const micPreferences = (msg.micPreferences || {
         preferredMicDeviceId: null,
         preferredMicLabel: null
@@ -1480,7 +1768,13 @@ async function handleOffscreenPortMessage(msg: any): Promise<void> {
       const recordingContext = (msg.recordingContext || {}) as RecordingContext
       try {
         // Poczekaj, aż nagrywanie faktycznie wystartuje.
-        const recordingInfo = await startRecordingFromStreamId(streamId, micPreferences, recordingContext)
+        const recordingInfo = await startRecordingFromStreamId(
+          streamId,
+          captureSource,
+          canRequestAudioTrack,
+          micPreferences,
+          recordingContext
+        )
         return respond(msg, { ok: true, ...recordingInfo })
       } catch (e: any) {
         captureException(e, { operation: 'OFFSCREEN_START' })
