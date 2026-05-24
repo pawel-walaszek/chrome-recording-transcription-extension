@@ -2355,11 +2355,7 @@ async function handleOffscreenPortMessage(msg: any): Promise<void> {
     }
 
     if (msg?.type === 'OFFSCREEN_STATUS') {
-      const historyResponse = await chrome.runtime.sendMessage({ type: 'READ_RECORDING_HISTORY' }).catch(() => null)
-      return respond(msg, {
-        ...buildOffscreenRuntimeStatus(),
-        items: Array.isArray(historyResponse?.items) ? historyResponse.items : uploadQueue.map(toHistoryItem)
-      })
+      return respond(msg, buildOffscreenRuntimeStatus())
     }
 
     if (msg?.type === 'OFFSCREEN_REQUEUE_AUTH_REQUIRED_UPLOADS') {
