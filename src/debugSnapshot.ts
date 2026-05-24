@@ -72,11 +72,17 @@ export interface DebugSnapshot {
   }
   spool: {
     available: boolean
+    error: string | null
     stores: string[]
     records: DebugSpoolRecordSummary[]
     chunkStatsByLocalId: Record<string, DebugChunkStats>
   }
   storageLocal: Record<string, unknown>
+}
+
+interface DebugSpoolOpenResult {
+  db: IDBDatabase | null
+  error: string | null
 }
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -100,17 +106,35 @@ async function spoolDatabaseExists(): Promise<boolean> {
   return databases.some(db => db.name === RECORDING_SPOOL_DB_NAME)
 }
 
-function deleteEmptyDebugSpoolDb(): Promise<void> {
+function deleteEmptyDebugSpoolDb(timeoutMs = 2_000): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase(RECORDING_SPOOL_DB_NAME)
-    request.onsuccess = () => resolve()
-    request.onerror = () => reject(request.error || new Error('Could not delete empty debug spool database.'))
-    request.onblocked = () => resolve()
+    let blocked = false
+    let settled = false
+    const timeoutId = window.setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new Error(blocked
+        ? 'Deleting empty debug spool database is blocked by another open connection.'
+        : 'Deleting empty debug spool database timed out.'))
+    }, timeoutMs)
+    const settle = (callback: () => void) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timeoutId)
+      callback()
+    }
+
+    request.onsuccess = () => settle(resolve)
+    request.onerror = () => settle(() => reject(request.error || new Error('Could not delete empty debug spool database.')))
+    request.onblocked = () => {
+      blocked = true
+    }
   })
 }
 
-async function openDebugSpoolDb(): Promise<IDBDatabase | null> {
-  if (!await spoolDatabaseExists()) return null
+async function openDebugSpoolDb(): Promise<DebugSpoolOpenResult> {
+  if (!await spoolDatabaseExists()) return { db: null, error: null }
   return new Promise((resolve, reject) => {
     let createdDuringDebugOpen = false
     const request = indexedDB.open(RECORDING_SPOOL_DB_NAME)
@@ -120,14 +144,17 @@ async function openDebugSpoolDb(): Promise<IDBDatabase | null> {
     request.onerror = () => reject(request.error || new Error('Could not open recording spool.'))
     request.onsuccess = () => {
       if (!createdDuringDebugOpen) {
-        resolve(request.result)
+        resolve({ db: request.result, error: null })
         return
       }
 
       request.result.close()
       deleteEmptyDebugSpoolDb()
-        .then(() => resolve(null))
-        .catch(reject)
+        .then(() => resolve({ db: null, error: null }))
+        .catch((e) => resolve({
+          db: null,
+          error: e instanceof Error ? e.message : String(e)
+        }))
     }
   })
 }
@@ -277,10 +304,11 @@ function addDebugChunkStats(
 }
 
 async function readDebugSpool(): Promise<DebugSnapshot['spool']> {
-  const db = await openDebugSpoolDb()
+  const { db, error } = await openDebugSpoolDb()
   if (!db) {
     return {
       available: false,
+      error,
       stores: [],
       records: [],
       chunkStatsByLocalId: {}
@@ -332,6 +360,7 @@ async function readDebugSpool(): Promise<DebugSnapshot['spool']> {
 
     return {
       available: true,
+      error: null,
       stores,
       records,
       chunkStatsByLocalId

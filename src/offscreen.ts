@@ -184,6 +184,7 @@ let restoreUploadQueuePromise: Promise<void> | null = null
 let recordingStateSyncWorkerRunning = false
 let recordingStateSyncWake: (() => void) | null = null
 let orphanedChunkDiagnosticsRunning = false
+let orphanedChunkDiagnosticsTimeoutId: number | null = null
 let lastOrphanedChunkDiagnosticsStartedAtMs = 0
 const recordingStateSyncQueue = new Map<string, RecordingHistoryItem>()
 
@@ -1400,12 +1401,18 @@ async function reportAndDeleteOrphanedSpoolChunks(): Promise<void> {
   }
 }
 
-function scheduleOrphanedSpoolChunkDiagnostics(): void {
-  window.setTimeout(() => {
-    void reportAndDeleteOrphanedSpoolChunks().catch((e) => {
-      captureException(e, { operation: 'scheduleOrphanedSpoolChunkDiagnostics.unhandled' })
-    })
-  }, 0)
+function scheduleOrphanedSpoolChunkDiagnostics(delayMs = 0): void {
+  if (orphanedChunkDiagnosticsTimeoutId != null) return
+  orphanedChunkDiagnosticsTimeoutId = window.setTimeout(() => {
+    orphanedChunkDiagnosticsTimeoutId = null
+    void reportAndDeleteOrphanedSpoolChunks()
+      .catch((e) => {
+        captureException(e, { operation: 'scheduleOrphanedSpoolChunkDiagnostics.unhandled' })
+      })
+      .finally(() => {
+        scheduleOrphanedSpoolChunkDiagnostics(ORPHANED_CHUNK_DIAGNOSTIC_INTERVAL_MS)
+      })
+  }, delayMs)
 }
 
 async function restoreUploadQueueFromSpool(): Promise<void> {
@@ -1996,6 +2003,7 @@ async function handleOffscreenPortMessage(msg: any): Promise<void> {
 }
 
 getPort()
+scheduleOrphanedSpoolChunkDiagnostics()
 
 // Pozwala tłu sprawdzić stan, zanim port będzie gotowy.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
