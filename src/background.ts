@@ -956,7 +956,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
         await refreshRecentRecordingsForPopup()
         if (msg.forceBackendRefresh === true) {
-          await scheduleBackendRecordingsRefresh(true)
+          scheduleBackendRecordingsRefresh(true)
         }
       } catch {}
       if (!lastKnownRecording && !recordingStarting && !recordingStopping) {
