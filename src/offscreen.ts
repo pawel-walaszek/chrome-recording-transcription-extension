@@ -911,7 +911,7 @@ async function queueRecordingStateSync(item: RecordingHistoryItem): Promise<Reco
   return syncItem
 }
 
-function shouldRemoveSyncedTerminalLocalHistoryItem(item: RecordingHistoryItem): boolean {
+function shouldDeleteSyncedTerminalSpoolArtifacts(item: RecordingHistoryItem): boolean {
   if (!item.backendRecordingId) return false
   return item.status === 'canceled'
 }
@@ -974,14 +974,12 @@ async function markRecordingStateSynced(
     })
   }
 
-  if (shouldRemoveSyncedTerminalLocalHistoryItem(updatedItem)) {
+  if (shouldDeleteSyncedTerminalSpoolArtifacts(updatedItem)) {
     if (currentSpoolRecord?.localId === updatedItem.localId || uploadQueue.some(entry => entry.localId === updatedItem.localId)) {
       await persistHistoryItem(updatedItem, { syncState: false })
       return
     }
     await deleteLocalSpoolArtifacts(updatedItem.localId)
-    await deleteLocalRecordingHistoryItem(updatedItem.localId)
-    return
   }
 
   await persistHistoryItem(updatedItem, { syncState: false })
