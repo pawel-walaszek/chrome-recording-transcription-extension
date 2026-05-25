@@ -916,21 +916,6 @@ function shouldDeleteSyncedTerminalSpoolArtifacts(item: RecordingHistoryItem): b
   return item.status === 'canceled'
 }
 
-async function deleteLocalRecordingHistoryItem(localId: string): Promise<void> {
-  const response: unknown = await chrome.runtime.sendMessage({
-    type: 'DELETE_RECORDING_HISTORY_ITEM',
-    localId
-  }).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
-
-  if (!isRuntimeOkResponse(response)) {
-    captureMessage('Recording history item could not be deleted after backend archival.', 'warning', {
-      operation: 'deleteLocalRecordingHistoryItem',
-      localId,
-      error: runtimeResponseError(response, 'Invalid DELETE_RECORDING_HISTORY_ITEM response.')
-    })
-  }
-}
-
 async function deleteLocalSpoolArtifacts(localId: string): Promise<void> {
   rememberClosedSpoolLocalId(localId)
   await Promise.all([
