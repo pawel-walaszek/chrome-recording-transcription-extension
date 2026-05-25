@@ -1061,11 +1061,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
 
       try {
-        const localHistory = await updateRecordingHistory((history) =>
-          history.filter(item => item.localId !== localId)
-        )
+        let removed = false
+        const localHistory = await updateRecordingHistory((history) => {
+          const next = history.filter(item => item.localId !== localId)
+          if (next.length === history.length) return history
+          removed = true
+          return next
+        })
         recentRecordings = mergeRecordingHistory(localHistory, backendRecordings).slice(0, POPUP_RECORDING_HISTORY_LIMIT)
-        broadcastUploadQueueState()
+        if (removed) broadcastUploadQueueState()
         sendResponse({ ok: true, items: recentRecordings })
       } catch (e: any) {
         captureException(e, { operation: 'DELETE_RECORDING_HISTORY_ITEM', localId })

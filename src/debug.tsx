@@ -44,14 +44,15 @@ function App(): React.ReactElement {
         ok: false,
         error: err instanceof Error ? err.message : String(err)
       }))
-      if (response?.ok === false) {
-        setMaintenanceError(response.error || 'Local maintenance could not be started.')
+      const maintenanceResult = response && typeof response === 'object'
+        ? response as Record<string, unknown>
+        : { ok: false, error: 'Local maintenance returned invalid response.' }
+      if (maintenanceResult.ok !== true) {
+        setMaintenanceError(typeof maintenanceResult.error === 'string'
+          ? maintenanceResult.error
+          : 'Local maintenance could not be started.')
       }
-      setSnapshot(await readDebugSnapshot(
-        response && typeof response === 'object'
-          ? response as Record<string, unknown>
-          : { ok: false, error: 'Local maintenance returned invalid response.' }
-      ))
+      setSnapshot(await readDebugSnapshot(maintenanceResult))
     } catch (err) {
       console.error('[debug] snapshot error', err)
       captureException(err, { operation: 'readDebugSnapshot.debugPage' })
