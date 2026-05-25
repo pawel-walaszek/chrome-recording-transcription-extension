@@ -352,7 +352,12 @@ function isLocalOnlyPopupHistoryItem(item: RecordingHistoryItem): boolean {
     item.status === 'upload_queued' ||
     item.status === 'uploading' ||
     (item.status === 'failed' && item.failureReason === 'auth_required') ||
-    isLocalOnlyFailureWithoutRecording(item)
+    isLocalFailureVisibleWithoutBackendRecord(item)
+}
+
+function isLocalFailureVisibleWithoutBackendRecord(item: RecordingHistoryItem): boolean {
+  return isLocalOnlyFailureWithoutRecording(item) ||
+    (item.status === 'failed' && !!item.backendRecordingId && item.failureReason !== 'auth_required')
 }
 
 function scheduleBackendRecordingsRefresh(force = false): Promise<void> | null {
