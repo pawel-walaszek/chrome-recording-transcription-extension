@@ -357,7 +357,11 @@ function isLocalOnlyPopupHistoryItem(item: RecordingHistoryItem): boolean {
 
 function isLocalFailureVisibleWithoutBackendRecord(item: RecordingHistoryItem): boolean {
   return isLocalOnlyFailureWithoutRecording(item) ||
-    (item.status === 'failed' && !!item.backendRecordingId && item.failureReason !== 'auth_required')
+    (
+      item.status === 'failed' &&
+      !!item.backendRecordingId &&
+      (item.failureReason === 'local_error' || item.failureReason === 'unrecoverable')
+    )
 }
 
 function scheduleBackendRecordingsRefresh(force = false): Promise<void> | null {
