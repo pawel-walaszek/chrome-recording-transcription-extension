@@ -2389,7 +2389,7 @@ async function handleOffscreenPortMessage(msg: any): Promise<void> {
       const result = await runLocalMaintenanceNow({
         forceOrphanedChunkDiagnostics: msg.forceOrphanedChunkDiagnostics === true
       })
-      return respond(msg, { ok: true, result })
+      return respond(msg, msg.includeDetails === true ? { ok: true, result } : { ok: true })
     }
 
     if (msg?.type === 'DIAG_ECHO') {
