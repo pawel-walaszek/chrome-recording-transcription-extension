@@ -917,16 +917,16 @@ function shouldRemoveSyncedTerminalLocalHistoryItem(item: RecordingHistoryItem):
 }
 
 async function deleteLocalRecordingHistoryItem(localId: string): Promise<void> {
-  const response = await chrome.runtime.sendMessage({
+  const response: unknown = await chrome.runtime.sendMessage({
     type: 'DELETE_RECORDING_HISTORY_ITEM',
     localId
   }).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
 
-  if (response?.ok === false) {
+  if (!isRuntimeOkResponse(response)) {
     captureMessage('Recording history item could not be deleted after backend archival.', 'warning', {
       operation: 'deleteLocalRecordingHistoryItem',
       localId,
-      error: typeof response.error === 'string' ? response.error : null
+      error: runtimeResponseError(response, 'Invalid DELETE_RECORDING_HISTORY_ITEM response.')
     })
   }
 }
@@ -1454,11 +1454,30 @@ async function markInterruptedSpoolRecordings(): Promise<void> {
 }
 
 async function readLocalRecordingHistory(): Promise<RecordingHistoryItem[]> {
-  const response = await chrome.runtime.sendMessage({ type: 'READ_LOCAL_RECORDING_HISTORY' })
-  if (response?.ok === false) {
-    throw new Error(response.error || 'Could not read local recording history.')
+  const response: unknown = await chrome.runtime.sendMessage({ type: 'READ_LOCAL_RECORDING_HISTORY' })
+  if (!isRuntimeOkResponse(response)) {
+    throw new Error(runtimeResponseError(response, 'Invalid READ_LOCAL_RECORDING_HISTORY response.'))
   }
-  return normalizeRecordingHistory(response?.items)
+  const items = isObjectRecord(response) ? response.items : undefined
+  if (!Array.isArray(items)) {
+    throw new Error('READ_LOCAL_RECORDING_HISTORY response did not include an items array.')
+  }
+  return normalizeRecordingHistory(items)
+}
+
+function isRuntimeOkResponse(response: unknown): response is Record<string, unknown> & { ok: true } {
+  return isObjectRecord(response) && response.ok === true
+}
+
+function runtimeResponseError(response: unknown, fallback: string): string {
+  if (isObjectRecord(response) && typeof response.error === 'string' && response.error.length > 0) {
+    return response.error
+  }
+  return fallback
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 async function markOrphanedPendingHistoryItems(uploadableSpoolLocalIds: Set<string>): Promise<void> {

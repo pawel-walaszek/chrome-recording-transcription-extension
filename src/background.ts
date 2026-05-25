@@ -318,15 +318,20 @@ function mergedRecordingTitle(existing: RecordingHistoryItem, backendItem: Recor
 }
 
 function recordingDisplayTimestamp(item: RecordingHistoryItem): number {
-  const primary = Date.parse(item.startedAt || item.createdAt)
-  if (Number.isFinite(primary)) return primary
-  const fallback = Date.parse(item.createdAt || item.updatedAt)
-  return Number.isFinite(fallback) ? fallback : 0
+  return parseRecordingTimestamp(item.startedAt) ??
+    parseRecordingTimestamp(item.createdAt) ??
+    parseRecordingTimestamp(item.updatedAt) ??
+    0
 }
 
 function recordingCreatedTimestamp(item: RecordingHistoryItem): number {
-  const createdAt = Date.parse(item.createdAt)
-  return Number.isFinite(createdAt) ? createdAt : 0
+  return parseRecordingTimestamp(item.createdAt) ?? 0
+}
+
+function parseRecordingTimestamp(value?: string | null): number | null {
+  if (!value) return null
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : null
 }
 
 function recordingStableSortId(item: RecordingHistoryItem): string {
