@@ -13,6 +13,9 @@ export interface BackendRecordingListItem {
   status: BackendRecordingStatus
   durationMs: number | null
   startedAt: string | null
+  failureStage: string | null
+  failureReason: string | null
+  failureMessage: string | null
   createdAt: string
   updatedAt: string
   displayTimeline?: string
@@ -40,6 +43,15 @@ function parseBackendRecording(value: unknown): BackendRecordingListItem | null 
   const createdAt = typeof record.createdAt === 'string' ? record.createdAt.trim() : ''
   const updatedAtRaw = typeof record.updatedAt === 'string' ? record.updatedAt.trim() : ''
   const updatedAt = updatedAtRaw || createdAt
+  const failureStage = typeof record.failureStage === 'string' && record.failureStage.trim()
+    ? record.failureStage.trim()
+    : null
+  const failureReason = typeof record.failureReason === 'string' && record.failureReason.trim()
+    ? record.failureReason.trim()
+    : null
+  const failureMessage = typeof record.failureMessage === 'string' && record.failureMessage.trim()
+    ? record.failureMessage.trim()
+    : null
   const displayTimeline = typeof record.displayTimeline === 'string' ? record.displayTimeline.trim() : ''
 
   if (!id || !status || !createdAt) return null
@@ -52,6 +64,9 @@ function parseBackendRecording(value: unknown): BackendRecordingListItem | null 
       ? record.durationMs
       : null,
     startedAt: startedAtRaw || null,
+    failureStage,
+    failureReason,
+    failureMessage,
     createdAt,
     updatedAt,
     ...(displayTimeline ? { displayTimeline } : {})

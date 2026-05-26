@@ -58,6 +58,7 @@ export interface DebugSnapshot {
     pageUrl: string
     userAgent: string
   }
+  maintenance: Record<string, unknown> | null
   summary: {
     spoolRecordCount: number
     spoolBlockingCount: number
@@ -360,7 +361,9 @@ function countByStatus(items: Array<{ status?: unknown }>): Record<string, numbe
   return counts
 }
 
-export async function readDebugSnapshot(): Promise<DebugSnapshot> {
+export async function readDebugSnapshot(
+  maintenance: Record<string, unknown> | null = null
+): Promise<DebugSnapshot> {
   const [spool, storageLocal] = await Promise.all([
     readDebugSpool(),
     readChromeStorageLocal()
@@ -384,6 +387,7 @@ export async function readDebugSnapshot(): Promise<DebugSnapshot> {
       pageUrl: window.location.href,
       userAgent: navigator.userAgent
     },
+    maintenance,
     summary: {
       spoolRecordCount: spool.records.length,
       spoolBlockingCount: spool.records.filter(record => record.countsAgainstSpoolCapacity).length,

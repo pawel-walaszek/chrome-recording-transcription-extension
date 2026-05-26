@@ -253,6 +253,7 @@ export async function updateRecordingHistory(
   return enqueueRecordingHistoryWrite(async () => {
     const history = await readRecordingHistory()
     const next = await updater(history)
+    if (next === history) return history
     return writeRecordingHistoryInternal(next)
   })
 }

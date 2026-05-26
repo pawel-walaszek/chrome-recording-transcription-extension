@@ -28,6 +28,7 @@ function App(): React.ReactElement {
   const [snapshot, setSnapshot] = useState<DebugSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [maintenanceError, setMaintenanceError] = useState<string | null>(null)
 
   const snapshotJson = useMemo(
     () => snapshot ? JSON.stringify(snapshot, null, 2) : '',
@@ -37,8 +38,21 @@ function App(): React.ReactElement {
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setMaintenanceError(null)
     try {
-      setSnapshot(await readDebugSnapshot())
+      const response = await chrome.runtime.sendMessage({ type: 'DEBUG_RUN_LOCAL_MAINTENANCE' }).catch((err) => ({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err)
+      }))
+      const maintenanceResult = response && typeof response === 'object'
+        ? response as Record<string, unknown>
+        : { ok: false, error: 'Local maintenance returned invalid response.' }
+      if (maintenanceResult.ok !== true) {
+        setMaintenanceError(typeof maintenanceResult.error === 'string'
+          ? maintenanceResult.error
+          : 'Local maintenance could not be started.')
+      }
+      setSnapshot(await readDebugSnapshot(maintenanceResult))
     } catch (err) {
       console.error('[debug] snapshot error', err)
       captureException(err, { operation: 'readDebugSnapshot.debugPage' })
@@ -95,6 +109,9 @@ function App(): React.ReactElement {
 
         {error ? (
           <Alert message={error} showIcon type="error" />
+        ) : null}
+        {maintenanceError ? (
+          <Alert message={maintenanceError} showIcon type="warning" />
         ) : null}
 
         {snapshot ? (

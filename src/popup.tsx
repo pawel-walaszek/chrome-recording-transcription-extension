@@ -45,6 +45,7 @@ interface RecordingStatus {
 
 const { Text } = Typography
 const START_RECORDING_POPUP_DELAY_MS = 3_000
+const BACKEND_STATUS_REFRESH_INTERVAL_MS = 15_000
 const MEET2NOTE_BRAND_ICON_URL = chrome.runtime.getURL('icons/meet2note-favicon.svg')
 const POPUP_WIDTH = 252
 const HEADER_ACTION_ICON_STYLE: React.CSSProperties = {
@@ -169,6 +170,13 @@ function getHistoryTagText(item: RecordingHistoryItem): string {
   return item.status
 }
 
+function hasBackendProcessingStatus(items: RecordingHistoryItem[]): boolean {
+  return items.some(item =>
+    item.backendRecordingId &&
+    (item.status === 'processing_queued' || item.status === 'processing')
+  )
+}
+
 function readPopupUiCache(): PopupUiCache {
   try {
     const raw = window.localStorage.getItem(POPUP_UI_CACHE_KEY)
@@ -280,6 +288,22 @@ function App(): React.ReactElement {
     setMeet2NoteConnection(connection)
   }, [])
 
+  const refreshRecordingStatus = useCallback(async (forceBackendRefresh = false) => {
+    const status = await chrome.runtime.sendMessage({
+      type: 'GET_RECORDING_STATUS',
+      forceBackendRefresh
+    })
+    const startedAt = status?.recordingStartedAt ?? status?.startRequestedAt ?? null
+    setRecordingState({
+      recording: !!status?.recording,
+      starting: !!status?.starting,
+      stopping: !!status?.stopping,
+      recordingStartedAt: typeof startedAt === 'number' ? startedAt : null,
+      error: typeof status?.error === 'string' ? status.error : null
+    })
+    setRecentRecordings(sanitizeRecordingHistory(status?.recentRecordings))
+  }, [])
+
   useEffect(() => {
     writePopupUiCache({
       connection: meet2NoteConnection,
@@ -290,16 +314,7 @@ function App(): React.ReactElement {
   useEffect(() => {
     void (async () => {
       try {
-        const status = await chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATUS' })
-        const startedAt = status?.recordingStartedAt ?? status?.startRequestedAt ?? null
-        setRecordingState({
-          recording: !!status?.recording,
-          starting: !!status?.starting,
-          stopping: !!status?.stopping,
-          recordingStartedAt: typeof startedAt === 'number' ? startedAt : null,
-          error: typeof status?.error === 'string' ? status.error : null
-        })
-        setRecentRecordings(sanitizeRecordingHistory(status?.recentRecordings))
+        await refreshRecordingStatus()
       } catch {
         setRecordingState({
           recording: false,
@@ -314,7 +329,19 @@ function App(): React.ReactElement {
         refreshMeet2NoteConnection().catch(() => {})
       ])
     })()
-  }, [refreshMic, refreshMeet2NoteConnection])
+  }, [refreshMic, refreshMeet2NoteConnection, refreshRecordingStatus])
+
+  useEffect(() => {
+    if (!hasBackendProcessingStatus(recentRecordings)) return undefined
+
+    const timerId = window.setInterval(() => {
+      refreshRecordingStatus(true).catch((error) => {
+        captureException(error, { operation: 'refreshRecordingStatus.backendProcessingPoll' })
+      })
+    }, BACKEND_STATUS_REFRESH_INTERVAL_MS)
+
+    return () => window.clearInterval(timerId)
+  }, [recentRecordings, refreshRecordingStatus])
 
   useEffect(() => {
     if (!('permissions' in navigator)) return undefined
