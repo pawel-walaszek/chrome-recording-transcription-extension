@@ -12,7 +12,9 @@ Stosuj te zasady przy generowaniu kodu, komentarzy i uwag review w tym repozytor
 6. Ustalenia integracyjne z backendem są utrzymywane w specyfikacjach, issue cross-repo i realnym zachowaniu API.
 7. Lokalne wzorce MV3, media, messagingu, storage i TypeScript są opisane w `docs/agent-guides/chrome-extension-ts.md`.
 
-## Priorytety review
+## Code Review
+
+Priorytety:
 
 1. Regresje funkcjonalne w przechwytywaniu karty, nagrywaniu offscreen, uploadzie assetów i przepływie uprawnień mikrofonu.
 2. Ryzyka bezpieczeństwa i prywatności, szczególnie niepotrzebne uprawnienia Chrome albo dane opuszczające przeglądarkę.
@@ -21,12 +23,14 @@ Stosuj te zasady przy generowaniu kodu, komentarzy i uwag review w tym repozytor
 5. Niepotrzebna złożoność albo szerokie refaktory.
 6. Niezgodność z `docs/agent-guides/chrome-extension-ts.md`, szczególnie przy zmianach w MV3 lifecycle, offscreen, storage, messagingu i media devices.
 
-## Kompletność review
+Kompletność:
 
-1. W jednej rundzie review zgłoś wszystkie możliwe do wdrożenia uwagi, które potrafisz zidentyfikować.
-2. Nie cedź celowo uwag przez wiele rund review.
-3. Kolejne rundy powinny skupiać się na nowo wprowadzonych zmianach, nierozwiązanych uwagach albo problemach, które nie były rozsądnie widoczne w poprzedniej rundzie.
-4. Jeśli uwag jest dużo, grupuj powiązane problemy i zaczynaj od tych o najwyższym ryzyku.
+1. Przed wysłaniem komentarzy przejrzyj pełny aktualny diff względem brancha bazowego.
+2. W jednej rundzie review zgłoś wszystkie możliwe do wdrożenia uwagi, które potrafisz zidentyfikować.
+3. Nie cedź celowo uwag przez wiele rund review, jeśli problemy są widoczne w tym samym diffie.
+4. Kolejne rundy powinny skupiać się na nowo wprowadzonych zmianach, nierozwiązanych uwagach albo problemach, które nie były rozsądnie widoczne w poprzedniej rundzie.
+5. Jeśli uwag jest dużo, grupuj powiązane problemy i zaczynaj od tych o najwyższym ryzyku.
+6. Jeśli komentarz jest spekulatywny albo ma niską pewność, oznacz to wprost.
 
 ## Styl
 
